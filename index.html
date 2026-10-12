@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SKYPAY 簽名檔產生器</title>
+<title>SKYPAY Email Signature Generator</title>
 <style>
   :root {
     --brand: #0C63C4; --ink: #0E5A8A; --muted: #5b6b7c;
@@ -12,11 +12,16 @@
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: #1f3f5f; line-height: 1.5;
-    font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", Arial, sans-serif;
+    font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
   }
   .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 20px 60px; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
   h1 { font-size: 24px; margin: 0 0 4px; color: var(--ink); }
-  .sub { margin: 0 0 28px; color: var(--muted); font-size: 14px; }
+  .sub { margin: 0; color: var(--muted); font-size: 14px; }
+  .lang { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff; flex-shrink: 0; }
+  .lang button { border: 0; background: #fff; color: var(--muted); font-size: 13px; padding: 7px 13px; cursor: pointer; font-family: inherit; }
+  .lang button[aria-pressed="true"] { background: var(--brand); color: #fff; }
+
   .layout { display: grid; grid-template-columns: 320px 1fr; gap: 24px; align-items: start; }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
 
@@ -25,15 +30,11 @@
 
   label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 5px; }
   .hint { font-weight: 400; color: var(--muted); }
-  input[type=text], input[type=email], input[type=tel], input[type=url] {
+  input[type=text], input[type=email], input[type=tel] {
     width: 100%; padding: 9px 11px; font-size: 14px; font-family: inherit; background: #fff;
     border: 1px solid var(--line); border-radius: 6px; color: #1f3f5f; margin-bottom: 14px;
   }
   input:focus { outline: 2px solid var(--brand); outline-offset: 1px; border-color: var(--brand); }
-  .check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; margin-bottom: 14px; }
-  .check input { margin-top: 3px; }
-  .check label { margin: 0; font-weight: 600; }
-  .divider { border: 0; border-top: 1px solid var(--line); margin: 6px 0 18px; }
 
   .preview-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
   .toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
@@ -56,45 +57,44 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>SKYPAY 簽名檔產生器</h1>
-  <p class="sub">填好資料後按「複製簽名檔」，貼到 Gmail 簽名欄即可。</p>
+  <div class="top">
+    <div>
+      <h1 id="t-title">SKYPAY Email Signature Generator</h1>
+      <p class="sub" id="t-sub"></p>
+    </div>
+    <div class="lang" role="group" aria-label="Language">
+      <button data-lang="en" aria-pressed="true">English</button>
+      <button data-lang="zh-Hant" aria-pressed="false">正體中文</button>
+      <button data-lang="zh-Hans" aria-pressed="false">简体中文</button>
+    </div>
+  </div>
 
   <div class="layout">
     <div class="panel">
-      <h2>個人資料</h2>
-      <label for="name">姓名</label>
+      <h2 id="t-formHead"></h2>
+
+      <label for="name" id="t-lblName"></label>
       <input type="text" id="name" value="Samuel Chan" autocomplete="name">
 
-      <label for="title">職稱</label>
+      <label for="title" id="t-lblTitle"></label>
       <input type="text" id="title" value="Founder &amp; CEO" autocomplete="organization-title">
 
-      <label for="email">Email</label>
+      <label for="email" id="t-lblEmail"></label>
       <input type="email" id="email" value="samuel.chan@skypay.ph" autocomplete="email">
 
-      <label for="phone1">電話 1</label>
+      <label for="phone1" id="t-lblPhone1"></label>
       <input type="tel" id="phone1" value="+886 989886418" autocomplete="tel">
 
-      <label for="phone2">電話 2 <span class="hint">（選填）</span></label>
+      <label for="phone2" id="t-lblPhone2"></label>
       <input type="tel" id="phone2" value="+63 9399027848">
-
-      <hr class="divider">
-      <h2>選項</h2>
-
-      <label for="logo">Logo 圖片網址</label>
-      <input type="url" id="logo" value="https://skypay.ph/assets/image/skypay_logo.png">
-
-      <div class="check">
-        <input type="checkbox" id="showAddr">
-        <label for="showAddr">顯示底部藍色地址列</label>
-      </div>
     </div>
 
     <div class="panel">
       <div class="preview-head">
-        <h2 style="margin:0;">預覽</h2>
+        <h2 style="margin:0;" id="t-prevHead"></h2>
         <div class="toggle">
-          <button id="viewDesktop" aria-pressed="true">電腦</button>
-          <button id="viewMobile" aria-pressed="false">手機 360px</button>
+          <button id="viewDesktop" aria-pressed="true"></button>
+          <button id="viewMobile" aria-pressed="false"></button>
         </div>
       </div>
 
@@ -103,14 +103,14 @@
       </div>
 
       <div class="actions">
-        <button class="primary" id="copyRich">複製簽名檔</button>
-        <button class="secondary" id="copyCode">複製 HTML 原始碼</button>
+        <button class="primary" id="copyRich"></button>
+        <button class="secondary" id="copyCode"></button>
         <span class="status" id="status" role="status"></span>
       </div>
       <ol class="steps">
-        <li>按「複製簽名檔」。</li>
-        <li>Gmail：設定 → 查看所有設定 → 一般 → 簽名，貼上後捲到最底儲存。</li>
-        <li>寄一封測試信，用電腦與手機各看一次。</li>
+        <li id="t-step1"></li>
+        <li id="t-step2"></li>
+        <li id="t-step3"></li>
       </ol>
     </div>
   </div>
@@ -121,14 +121,76 @@
   const COMPANY = {
     website: "https://www.skypay.ph/",
     websiteLabel: "www.skypay.ph",
+    logo: "https://ci3.googleusercontent.com/mail-sig/AIorK4yJQIOUP_3SxOgiApy101JiNG68pIkBoXOiTDKOFZ8mdUqNdrG83-g8AuGimcUukhniuGUO8MJWpLup",
     logoAlt: "SKYPAY - Your Payment Bridge",
-    logoRatio: 87 / 200, // 依實際 Logo 比例，用來計算 height 屬性
+    logoRatio: 87 / 200,
     address: "Unit T-2902, 29th floor SM Mega Tower, Wack-Wack Greenhills, Mandaluyong, Metro Manila, Philippines, 1555"
   };
   const C = { text: "#0E5A8A", rule: "#0C63C4", bar: "#1565c0", barAccent: "#29A3E3" };
   const FONT = "Arial, Helvetica, sans-serif";
   const MAXW = 600;
   const LOGO_W = 180;
+
+  // ===== 介面文字（簽名檔內容不受影響，永遠是英文）=====
+  const I18N = {
+    "en": {
+      htmlLang: "en",
+      docTitle: "SKYPAY Email Signature Generator",
+      title: "SKYPAY Email Signature Generator",
+      sub: "Fill in your details, click Copy signature, then paste it into Gmail.",
+      formHead: "Your details",
+      name: "Full name", jobTitle: "Job title", email: "Email",
+      phone1: "Phone 1", phone2: "Phone 2", optional: "(optional)",
+      prevHead: "Preview", desktop: "Desktop", mobile: "Mobile 360px",
+      copyRich: "Copy signature", copyCode: "Copy HTML source",
+      okRich: "Copied. Paste it into Gmail.",
+      okCode: "HTML source copied.",
+      failRich: "Copy failed. Select the preview manually and copy.",
+      failCode: "Copy failed. Make sure the page is served over https.",
+      step1: "Click Copy signature.",
+      step2: "In Gmail: Settings → See all settings → General → Signature. Paste, then scroll down and save.",
+      step3: "Send yourself a test email and check it on both desktop and phone."
+    },
+    "zh-Hant": {
+      htmlLang: "zh-Hant",
+      docTitle: "SKYPAY 簽名檔產生器",
+      title: "SKYPAY 簽名檔產生器",
+      sub: "填好資料後按「複製簽名檔」，貼到 Gmail 簽名欄即可。",
+      formHead: "個人資料",
+      name: "姓名", jobTitle: "職稱", email: "Email",
+      phone1: "電話 1", phone2: "電話 2", optional: "（選填）",
+      prevHead: "預覽", desktop: "電腦", mobile: "手機 360px",
+      copyRich: "複製簽名檔", copyCode: "複製 HTML 原始碼",
+      okRich: "已複製，可以貼到 Gmail 了",
+      okCode: "已複製 HTML 原始碼",
+      failRich: "複製失敗，請手動選取預覽區塊複製",
+      failCode: "複製失敗，請確認網頁是用 https 開啟",
+      step1: "按「複製簽名檔」。",
+      step2: "Gmail：設定 → 查看所有設定 → 一般 → 簽名，貼上後捲到最底儲存。",
+      step3: "寄一封測試信，用電腦與手機各看一次。"
+    },
+    "zh-Hans": {
+      htmlLang: "zh-Hans",
+      docTitle: "SKYPAY 签名档生成器",
+      title: "SKYPAY 签名档生成器",
+      sub: "填好资料后点击「复制签名档」，粘贴到 Gmail 签名栏即可。",
+      formHead: "个人资料",
+      name: "姓名", jobTitle: "职称", email: "Email",
+      phone1: "电话 1", phone2: "电话 2", optional: "（选填）",
+      prevHead: "预览", desktop: "电脑", mobile: "手机 360px",
+      copyRich: "复制签名档", copyCode: "复制 HTML 源代码",
+      okRich: "已复制，可以粘贴到 Gmail 了",
+      okCode: "已复制 HTML 源代码",
+      failRich: "复制失败，请手动选取预览区块复制",
+      failCode: "复制失败，请确认网页是用 https 打开",
+      step1: "点击「复制签名档」。",
+      step2: "Gmail：设置 → 查看所有设置 → 常规 → 签名，粘贴后滚动到最下方保存。",
+      step3: "发一封测试邮件，用电脑和手机各看一次。"
+    }
+  };
+  const DEFAULT_LANG = "en";
+  let lang = DEFAULT_LANG;
+  const T = () => I18N[lang];
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s)
@@ -166,9 +228,9 @@
       <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse; margin-top:15px;">${rows}</table>`;
   }
 
-  function logoBlock(d) {
+  function logoBlock() {
     const h = Math.round(LOGO_W * COMPANY.logoRatio);
-    return `<a href="${esc(COMPANY.website)}" style="text-decoration:none; border:0;" target="_blank"><img src="${esc(d.logo.trim())}" alt="${esc(COMPANY.logoAlt)}" width="${LOGO_W}" height="${h}" style="display:block; width:${LOGO_W}px; height:auto; max-width:100%; border:0; background:#ffffff;"></a>`;
+    return `<a href="${esc(COMPANY.website)}" style="text-decoration:none; border:0;" target="_blank"><img src="${esc(COMPANY.logo)}" alt="${esc(COMPANY.logoAlt)}" width="${LOGO_W}" height="${h}" style="display:block; width:${LOGO_W}px; height:auto; max-width:100%; border:0; background:#ffffff;"></a>`;
   }
 
   function addressBar() {
@@ -181,9 +243,6 @@
   }
 
   function buildSignature(d) {
-    const addr = d.showAddr ? `
-  <tr><td style="padding:0;">${addressBar()}</td></tr>` : "";
-
     // 流體混合排版：inline-block 負責 Gmail／Apple Mail，align="left" 負責 Outlook
     return `<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; max-width:${MAXW}px; border-collapse:collapse; background-color:#ffffff;">
   <tr>
@@ -192,22 +251,54 @@
         <tr><td style="padding:24px 10px 12px 24px;">${infoBlock(d)}</td></tr>
       </table>
       <table cellpadding="0" cellspacing="0" border="0" align="left" width="100%" style="display:inline-block; vertical-align:middle; width:100%; max-width:212px; border-collapse:collapse;">
-        <tr><td align="center" style="padding:12px 24px 24px 16px;">${logoBlock(d)}</td></tr>
+        <tr><td align="center" style="padding:12px 24px 24px 16px;">${logoBlock()}</td></tr>
       </table>
     </td>
-  </tr>${addr}
+  </tr>
+  <tr><td style="padding:0;">${addressBar()}</td></tr>
 </table>`;
   }
 
-  const fields = ["name", "title", "email", "phone1", "phone2", "logo"];
+  const fields = ["name", "title", "email", "phone1", "phone2"];
   let data = {}, mobile = false;
 
   function readData() {
     data = {};
     fields.forEach(f => data[f] = $(f).value);
-    data.showAddr = $("showAddr").checked;
   }
   const currentHtml = () => buildSignature(data);
+
+  function applyLang() {
+    const t = T();
+    document.documentElement.lang = t.htmlLang;
+    document.title = t.docTitle;
+    $("t-title").textContent = t.title;
+    $("t-sub").textContent = t.sub;
+    $("t-formHead").textContent = t.formHead;
+    $("t-lblName").textContent = t.name;
+    $("t-lblTitle").textContent = t.jobTitle;
+    $("t-lblEmail").textContent = t.email;
+    $("t-lblPhone1").textContent = t.phone1;
+    $("t-lblPhone2").innerHTML = esc(t.phone2) + ' <span class="hint">' + esc(t.optional) + '</span>';
+    $("t-prevHead").textContent = t.prevHead;
+    $("viewDesktop").textContent = t.desktop;
+    $("viewMobile").textContent = t.mobile;
+    $("copyRich").textContent = t.copyRich;
+    $("copyCode").textContent = t.copyCode;
+    $("t-step1").textContent = t.step1;
+    $("t-step2").textContent = t.step2;
+    $("t-step3").textContent = t.step3;
+    document.querySelectorAll(".lang button").forEach(b =>
+      b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+    $("status").textContent = "";
+  }
+
+  function setLang(code) {
+    if (!I18N[code]) return;
+    lang = code;
+    try { localStorage.setItem("sig-lang", code); } catch (e) { /* 無痕模式略過 */ }
+    applyLang();
+  }
 
   function render() {
     readData();
@@ -243,26 +334,33 @@
           "text/html": new Blob([html], { type: "text/html" }),
           "text/plain": new Blob([$("preview").innerText], { type: "text/plain" })
         })]);
-        flash("已複製，可以貼到 Gmail 了");
+        flash(T().okRich);
         return;
       }
     } catch (e) { /* 改用備援做法 */ }
-    flash(copyBySelection() ? "已複製，可以貼到 Gmail 了" : "複製失敗，請手動選取預覽區塊複製");
+    flash(copyBySelection() ? T().okRich : T().failRich);
   });
 
   $("copyCode").addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(currentHtml());
-      flash("已複製 HTML 原始碼");
+      flash(T().okCode);
     } catch (e) {
-      flash("複製失敗，請確認網頁是用 https 開啟");
+      flash(T().failCode);
     }
   });
 
+  document.querySelectorAll(".lang button").forEach(b =>
+    b.addEventListener("click", () => setLang(b.dataset.lang)));
   $("viewDesktop").addEventListener("click", () => { mobile = false; render(); });
   $("viewMobile").addEventListener("click", () => { mobile = true; render(); });
   fields.forEach(f => $(f).addEventListener("input", render));
-  $("showAddr").addEventListener("change", render);
+
+  // 記住上次選的語言，沒有紀錄時用預設的英文
+  let saved = null;
+  try { saved = localStorage.getItem("sig-lang"); } catch (e) { /* 無痕模式略過 */ }
+  lang = I18N[saved] ? saved : DEFAULT_LANG;
+  applyLang();
   render();
 </script>
 </body>
