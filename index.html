@@ -121,9 +121,12 @@
   const COMPANY = {
     website: "https://www.skypay.ph/",
     websiteLabel: "www.skypay.ph",
-    logo: "https://ci3.googleusercontent.com/mail-sig/AIorK4yJQIOUP_3SxOgiApy101JiNG68pIkBoXOiTDKOFZ8mdUqNdrG83-g8AuGimcUukhniuGUO8MJWpLup",
+    // logoPath 可以直接填完整網址，也可以填相對路徑（此時由 logoBase 組成絕對網址）。
+    // 郵件沒有「所在網域」可以參照，所以輸出一定要絕對網址。
+    logoPath: "https://ci3.googleusercontent.com/mail-sig/AIorK4x9bxN6cln7E8fMLrkvxIfqVljkmQt6EMJTQ8neprHxNkVjB5MupP6Wlqf5jopGrzSolcclAUyP81MF",
+    logoBase: "https://seth-craftai.github.io/email-signature/", // 只有 logoPath 是相對路徑時才會用到
     logoAlt: "SKYPAY - Your Payment Bridge",
-    logoRatio: 87 / 200,
+    logoRatio: 87 / 200, // 後備值；圖片載入成功時會換成實際比例
     address: "Unit T-2902, 29th floor SM Mega Tower, Wack-Wack Greenhills, Mandaluyong, Metro Manila, Philippines, 1555"
   };
   const C = { text: "#0E5A8A", rule: "#0C63C4", bar: "#1565c0", barAccent: "#29A3E3" };
@@ -228,9 +231,18 @@
       <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse; margin-top:15px;">${rows}</table>`;
   }
 
-  function logoBlock() {
+  // 預覽用相對路徑（同一個網站下才讀得到），輸出一律用絕對網址。
+  function logoUrl(forPreview) {
+    if (/^https?:\/\//i.test(COMPANY.logoPath)) return COMPANY.logoPath; // 已經是絕對網址
+    const path = COMPANY.logoPath.replace(/^\/+/, "");  // 開頭不能有斜線
+    if (forPreview) return path;
+    const base = COMPANY.logoBase.replace(/\/*$/, "/"); // 結尾一定要有斜線
+    try { return new URL(path, base).href; } catch (e) { return base + path; }
+  }
+
+  function logoBlock(forPreview) {
     const h = Math.round(LOGO_W * COMPANY.logoRatio);
-    return `<a href="${esc(COMPANY.website)}" style="text-decoration:none; border:0;" target="_blank"><img src="${esc(COMPANY.logo)}" alt="${esc(COMPANY.logoAlt)}" width="${LOGO_W}" height="${h}" style="display:block; width:${LOGO_W}px; height:auto; max-width:100%; border:0; background:#ffffff;"></a>`;
+    return `<a href="${esc(COMPANY.website)}" style="text-decoration:none; border:0;" target="_blank"><img src="${esc(logoUrl(forPreview))}" alt="${esc(COMPANY.logoAlt)}" width="${LOGO_W}" height="${h}" style="display:block; width:${LOGO_W}px; height:auto; max-width:100%; border:0; background:#ffffff;"></a>`;
   }
 
   function addressBar() {
@@ -242,14 +254,14 @@
   </table>`;
   }
 
-  function buildSignature(d) {
+  function buildSignature(d, forPreview) {
     // 流體混合排版：兩個 inline-block 以 vertical-align:middle 對齊，寬度不足時 Logo 自動掉到下一行。
     // 兩個 table 之間不可留空白字元，否則會多出一道縫。
     // Logo 垂直位置：加大 padding 第一個數字往下移，同時把第三個數字減掉相同的量。
     return `<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; max-width:${MAXW}px; border-collapse:collapse; background-color:#ffffff;">
   <tr>
     <td style="padding:0;">
-      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="display:inline-block; vertical-align:middle; width:100%; max-width:372px; min-width:270px; border-collapse:collapse;"><tr><td style="padding:24px 10px 12px 24px;">${infoBlock(d)}</td></tr></table><table cellpadding="0" cellspacing="0" border="0" width="100%" style="display:inline-block; vertical-align:middle; width:100%; max-width:212px; border-collapse:collapse;"><tr><td align="center" style="padding:7px 24px 0px 16px;">${logoBlock()}</td></tr></table>
+      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="display:inline-block; vertical-align:middle; width:100%; max-width:372px; min-width:270px; border-collapse:collapse;"><tr><td style="padding:24px 10px 12px 24px;">${infoBlock(d)}</td></tr></table><table cellpadding="0" cellspacing="0" border="0" width="100%" style="display:inline-block; vertical-align:middle; width:100%; max-width:212px; border-collapse:collapse;"><tr><td align="center" style="padding:11px 24px 4px 16px;">${logoBlock(forPreview)}</td></tr></table>
     </td>
   </tr>
   <tr><td style="padding:0;">${addressBar()}</td></tr>
@@ -263,7 +275,8 @@
     data = {};
     fields.forEach(f => data[f] = $(f).value);
   }
-  const currentHtml = () => buildSignature(data);
+  const currentHtml = () => buildSignature(data, false);   // 複製／輸出：絕對網址
+  const previewHtml = () => buildSignature(data, true);    // 畫面預覽：相對路徑
 
   function applyLang() {
     const t = T();
@@ -303,7 +316,7 @@
     $("stage").style.width = mobile ? "360px" : "100%";
     $("viewMobile").setAttribute("aria-pressed", String(mobile));
     $("viewDesktop").setAttribute("aria-pressed", String(!mobile));
-    $("preview").innerHTML = currentHtml();
+    $("preview").innerHTML = previewHtml();
   }
 
   function flash(msg) {
@@ -359,6 +372,16 @@
   lang = I18N[saved] ? saved : DEFAULT_LANG;
   applyLang();
   render();
+
+  // 讀出 Logo 的真實寬高比，讓輸出的 height 屬性永遠正確；載入失敗則沿用後備值。
+  const probe = new Image();
+  probe.onload = () => {
+    if (probe.naturalWidth > 0) {
+      COMPANY.logoRatio = probe.naturalHeight / probe.naturalWidth;
+      render();
+    }
+  };
+  probe.src = logoUrl(true);
 </script>
 </body>
 </html>
