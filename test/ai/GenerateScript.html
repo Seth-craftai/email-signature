@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NPC 台詞生成測試台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: a status strip of three engines on top, then a two-column bench —
+   the scene (NPC + dialogue box + player actions) on the left, the run log on the right. */
+:root {
+  --bg: #eaefed;
+  --surface: #ffffff;
+  --ink: #1b292d;
+  --muted: #5a696d;
+  --line: #cdd7d4;
+  --accent: #0d7767;
+  --accent-ink: #ffffff;
+  --ok: #1c7c3f;
+  --warn: #a2610a;
+  --off: #8a9698;
+  --font-display: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11181a;
+    --surface: #1a2427;
+    --ink: #e3ebe9;
+    --muted: #93a3a4;
+    --line: #2d3b3e;
+    --accent: #4cc2ab;
+    --accent-ink: #0c1a18;
+    --ok: #62c483;
+    --warn: #e0a34a;
+    --off: #6d7b7d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11181a;
+  --surface: #1a2427;
+  --ink: #e3ebe9;
+  --muted: #93a3a4;
+  --line: #2d3b3e;
+  --accent: #4cc2ab;
+  --accent-ink: #0c1a18;
+  --ok: #62c483;
+  --warn: #e0a34a;
+  --off: #6d7b7d;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.page {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+header h1 {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 26px;
+  line-height: 1.25;
+  margin: 0 0 4px;
+  text-wrap: balance;
+}
+header p { margin: 0; color: var(--muted); max-width: 62ch; }
+
+/* Engines */
+.engines {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.engine {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--off);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.engine[data-state="ok"] { border-left-color: var(--ok); }
+.engine[data-state="warn"] { border-left-color: var(--warn); }
+.engine-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.engine-name { font-weight: 700; }
+.pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: var(--off);
+  white-space: nowrap;
+}
+.engine[data-state="ok"] .pill { color: var(--ok); }
+.engine[data-state="warn"] .pill { color: var(--warn); }
+.engine-note { font-size: 13px; color: var(--muted); }
+
+/* Bench */
+.bench {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.panel h2 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin: 0;
+}
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 160px; }
+.field label { font-size: 12px; color: var(--muted); }
+select, input[type="text"] {
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 7px 10px;
+  width: 100%;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  padding: 7px 14px;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 500; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Dialogue box */
+.stage {
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  background: var(--bg);
+  padding: 14px 16px 12px;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.speaker {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 17px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.speaker small { font-family: var(--font-body); font-weight: 400; font-size: 12px; color: var(--muted); }
+.line { font-size: 18px; line-height: 1.7; flex: 1; overflow-wrap: anywhere; }
+.line.pending { color: var(--muted); }
+.meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.player-said { font-size: 13px; color: var(--muted); }
+
+/* Log */
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.log li {
+  border-left: 3px solid var(--line);
+  padding: 2px 0 2px 10px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.log li[data-kind="ok"] { border-left-color: var(--ok); }
+.log li[data-kind="warn"] { border-left-color: var(--warn); }
+.log .t { font-family: var(--font-mono); font-size: 11px; color: var(--muted); display: block; }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+
+@media (max-width: 760px) {
+  .engines, .bench { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>NPC 台詞生成測試台</h1>
+    <p>選一個角色，對他做點什麼，看台詞由哪一層產生。三層依序退回：瀏覽器內建 AI、雲端 AI、預寫台詞。</p>
+  </header>
+
+  <section class="engines" aria-label="引擎狀態">
+    <div class="engine" id="eng-builtin" data-state="off">
+      <div class="engine-top"><span class="engine-name">1. 瀏覽器內建 AI</span><span class="pill" id="pill-builtin">檢查中</span></div>
+      <div class="engine-note" id="note-builtin">偵測 LanguageModel（Prompt API）</div>
+    </div>
+    <div class="engine" id="eng-cloud" data-state="off">
+      <div class="engine-top"><span class="engine-name">2. 雲端 AI</span><span class="pill" id="pill-cloud">檢查中</span></div>
+      <div class="engine-note" id="note-cloud">這個頁面用 Claude 代替你自己的後端</div>
+    </div>
+    <div class="engine" id="eng-script" data-state="ok">
+      <div class="engine-top"><span class="engine-name">3. 預寫台詞</span><span class="pill">可用</span></div>
+      <div class="engine-note">寫死在頁面裡，永遠有回應</div>
+    </div>
+  </section>
+
+  <div class="bench">
+    <section class="panel">
+      <h2>場景</h2>
+      <div class="row">
+        <div class="field">
+          <label for="npc">角色</label>
+          <select id="npc"></select>
+        </div>
+        <div class="field">
+          <label for="mode">引擎</label>
+          <select id="mode">
+            <option value="auto">自動（依序退回）</option>
+            <option value="builtin">只用瀏覽器內建 AI</option>
+            <option value="cloud">只用雲端 AI</option>
+            <option value="script">只用預寫台詞</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="stage" aria-live="polite">
+        <div class="speaker"><span id="speaker">老鐵匠 阿炎</span><small id="persona"></small></div>
+        <div class="player-said" id="player-said">（你走進了鋪子）</div>
+        <div class="line" id="line">選一個動作開始。</div>
+        <div class="meta" id="meta">尚未生成</div>
+      </div>
+
+      <div class="row" id="actions"></div>
+
+      <form class="row" id="free-form">
+        <div class="field" style="flex: 1 1 220px;">
+          <label for="free">或自己對他說一句話</label>
+          <input type="text" id="free" maxlength="80" placeholder="例如：你這把劍是不是偷來的？" autocomplete="off">
+        </div>
+        <button type="submit" class="primary" id="say" style="align-self: flex-end;">說出口</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>執行紀錄</h2>
+      <ul class="log" id="log">
+        <li><span class="t">提示</span>每次生成會記下用了哪一層、花了多久、為什麼退回。</li>
+      </ul>
+      <p class="hint">內建 AI 第一次使用會下載模型，下載進度會顯示在這裡。</p>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var NPCS = [
+    {
+      id: "smith", name: "老鐵匠 阿炎", persona: "嘴硬心軟，三句不離打鐵",
+      desc: "山城鐵匠鋪的老師傅，脾氣暴躁但手藝一流，講話直接，愛用打鐵來比喻事情。",
+      lines: {
+        greet: ["要打東西就說，不打就別擋著爐子。", "喲，還活著啊？上次那把劍沒斷吧。"],
+        rumor: ["北邊礦坑最近挖出怪東西，鐵都帶著紫光。", "聽說城主在偷偷收購盔甲，你自己想想。"],
+        haggle: ["嫌貴？那你自己拿石頭磨一把去。", "好鐵就是這個價，少一文我都對不起這雙手。"],
+        bye: ["路上小心，刀鈍了記得回來。", "去吧，別死在我看不到的地方。"],
+        any: ["哼，這種事問我一個打鐵的做什麼。", "少廢話，鐵要趁熱打，話要挑重點講。"]
+      }
+    },
+    {
+      id: "herb", name: "藥草商 蘇苓", persona: "溫柔、愛操心、有點神祕",
+      desc: "在森林邊擺攤的年輕藥草商，說話輕聲細語，總是擔心客人的身體，偶爾說些像預言的話。",
+      lines: {
+        greet: ["你來了。臉色不太好，昨晚沒睡吧？", "歡迎，今天的月見草剛摘的，還帶著露水。"],
+        rumor: ["森林深處的鳥這幾天都不叫了，你別往裡走。", "有人說看見白鹿，那通常不是好兆頭。"],
+        haggle: ["這價錢連採藥的鞋都買不起呢……好吧，算你便宜一點。", "藥不能省，但我可以多送你一把薄荷。"],
+        bye: ["慢走，記得按時喝藥。", "願風替你指路。"],
+        any: ["嗯……這件事，草木比我清楚。", "你問得真有意思，讓我想一想。"]
+      }
+    },
+    {
+      id: "guard", name: "城門守衛 大柱", persona: "盡責、囉嗦、愛抱怨班表",
+      desc: "站了十年城門的守衛，照規矩辦事，話多，動不動就抱怨排班和長官。",
+      lines: {
+        greet: ["站住！喔是你啊，進去吧進去吧。", "今天又是我站崗，連站三天了你知道嗎。"],
+        rumor: ["昨晚有馬車半夜出城，沒登記，隊長叫我別多問。", "聽說東門那邊鬧賊，還好不是我的班。"],
+        haggle: ["過路費是規定，跟我殺價沒用啊。", "你塞錢給我？我可是有原則的……至少在白天。"],
+        bye: ["天黑前回來，不然門關了我可不開。", "走好，別給我惹麻煩。"],
+        any: ["這不在我的職責範圍，你去問隊長。", "唉，我只是個看門的，別為難我。"]
+      }
+    }
+  ];
+
+  var ACTIONS = [
+    { id: "greet", label: "打招呼", say: "（你向他打了聲招呼）", prompt: "玩家向你打招呼。" },
+    { id: "rumor", label: "打聽傳聞", say: "（你問最近有什麼消息）", prompt: "玩家問你最近有沒有聽到什麼傳聞。" },
+    { id: "haggle", label: "討價還價", say: "（你嫌價錢太貴）", prompt: "玩家嫌你開的價錢太貴，想殺價。" },
+    { id: "bye", label: "道別", say: "（你準備離開）", prompt: "玩家準備離開，向你道別。" }
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var els = {
+    npc: $("npc"), mode: $("mode"), speaker: $("speaker"), persona: $("persona"),
+    said: $("player-said"), line: $("line"), meta: $("meta"), actions: $("actions"),
+    form: $("free-form"), free: $("free"), say: $("say"), log: $("log")
+  };
+
+  var state = {
+    builtin: "checking",   // checking | available | downloadable | downloading | unavailable
+    builtinWhy: "",
+    cloud: "checking",     // checking | available | unavailable
+    sample: null,
+    sessions: {},          // npc id -> LanguageModel session
+    busy: false
+  };
+
+  function currentNpc() {
+    for (var i = 0; i < NPCS.length; i++) if (NPCS[i].id === els.npc.value) return NPCS[i];
+    return NPCS[0];
+  }
+
+  function systemPrompt(npc) {
+    return "你是奇幻 RPG 遊戲裡的 NPC「" + npc.name + "」。角色設定：" + npc.desc +
+      "請用繁體中文、以這個角色的口吻回應玩家，只說一句台詞，不超過 40 個字。" +
+      "只輸出台詞本身，不要加引號、角色名、動作描述或任何解釋。";
+  }
+
+  function log(text, kind) {
+    var li = document.createElement("li");
+    if (kind) li.dataset.kind = kind;
+    var t = document.createElement("span");
+    t.className = "t";
+    t.textContent = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+    li.appendChild(t);
+    li.appendChild(document.createTextNode(text));
+    els.log.insertBefore(li, els.log.firstChild);
+  }
+
+  function setEngine(key, uiState, pill, note) {
+    $("eng-" + key).dataset.state = uiState;
+    $("pill-" + key).textContent = pill;
+    if (note) $("note-" + key).textContent = note;
+  }
+
+  function renderBuiltin() {
+    var s = state.builtin;
+    if (s === "available") setEngine("builtin", "ok", "可用", "模型已在這台裝置上，免費、可離線");
+    else if (s === "downloadable") setEngine("builtin", "warn", "需下載", "第一次生成時會下載模型（數 GB）");
+    else if (s === "downloading") setEngine("builtin", "warn", "下載中", "模型下載中，完成後即可使用");
+    else if (s === "unavailable") setEngine("builtin", "off", "不可用", state.builtinWhy || "這個瀏覽器或裝置不支援");
+    else setEngine("builtin", "off", "檢查中", "偵測 LanguageModel（Prompt API）");
+  }
+
+  function renderCloud() {
+    if (state.cloud === "available") setEngine("cloud", "ok", "可用", "由 Claude 生成；第一次呼叫會請你同意");
+    else if (state.cloud === "unavailable") setEngine("cloud", "off", "不可用", "這個檢視環境沒有提供 Claude 連線");
+    else setEngine("cloud", "off", "檢查中", "這個頁面用 Claude 代替你自己的後端");
+  }
+
+  /* ---------- detection ---------- */
+  function detectBuiltin() {
+    if (typeof self.LanguageModel === "undefined") {
+      state.builtin = "unavailable";
+      state.builtinWhy = "找不到 LanguageModel：瀏覽器不支援，或這個嵌入框架沒被授權";
+      renderBuiltin();
+      log("內建 AI：找不到 LanguageModel 物件。", "warn");
+      return;
+    }
+    Promise.resolve()
+      .then(function () { return self.LanguageModel.availability(); })
+      .then(function (a) {
+        state.builtin = a === "available" || a === "downloadable" || a === "downloading" ? a : "unavailable";
+        if (state.builtin === "unavailable") state.builtinWhy = "裝置不符合模型的硬體需求，或功能被停用";
+        renderBuiltin();
+        log("內建 AI：availability() 回報「" + a + "」。", state.builtin === "unavailable" ? "warn" : "ok");
+      })
+      .catch(function (e) {
+        state.builtin = "unavailable";
+        state.builtinWhy = "availability() 失敗：" + (e && e.message ? e.message : e);
+        renderBuiltin();
+        log("內建 AI：" + state.builtinWhy, "warn");
+      });
+  }
+
+  function detectCloud() {
+    if (!window.claude || typeof window.claude.use !== "function") {
+      state.cloud = "unavailable";
+      renderCloud();
+      return;
+    }
+    window.claude.use("sample").then(function (s) {
+      state.sample = s;
+      state.cloud = s ? "available" : "unavailable";
+      renderCloud();
+    }).catch(function () {
+      state.cloud = "unavailable";
+      renderCloud();
+    });
+  }
+
+  /* ---------- engines ---------- */
+  function clean(text) {
+    return String(text || "").trim().replace(/^["「『“]+|["」』”]+$/g, "").trim();
+  }
+
+  async function runBuiltin(npc, playerPrompt, onText) {
+    if (state.builtin === "unavailable" || state.builtin === "checking") {
+      throw new Error(state.builtinWhy || "內建 AI 不可用");
+    }
+    var session = state.sessions[npc.id];
+    if (!session) {
+      session = await self.LanguageModel.create({
+        initialPrompts: [{ role: "system", content: systemPrompt(npc) }],
+        monitor: function (m) {
+          m.addEventListener("downloadprogress", function (e) {
+            state.builtin = "downloading";
+            renderBuiltin();
+            $("pill-builtin").textContent = "下載 " + Math.round((e.loaded || 0) * 100) + "%";
+          });
+        }
+      });
+      state.sessions[npc.id] = session;
+      state.builtin = "available";
+      renderBuiltin();
+    }
+    var out = "";
+    if (typeof session.promptStreaming === "function") {
+      var stream = session.promptStreaming(playerPrompt);
+      var reader = stream.getReader();
+      while (true) {
+        var r = await reader.read();
+        if (r.done) break;
+        out += r.value;
+        onText(out);
+      }
+    } else {
+      out = await session.prompt(playerPrompt);
+    }
+    out = clean(out);
+    if (!out) throw new Error("模型回了空字串");
+    return out;
+  }
+
+  async function runCloud(npc, playerPrompt, onText) {
+    if (!state.sample) throw new Error("雲端 AI 不可用");
+    var input = systemPrompt(npc) + "\n\n情境：" + playerPrompt;
+    var res = await state.sample(input, {
+      modelTier: "quick",
+      cache: false,
+      onText: function (p) { if (p && p.text && p.text !== "Thinking...") onText(p.text); }
+    });
+    var out = clean(res && res.text);
+    if (!out) throw new Error("雲端回了空字串");
+    return out;
+  }
+
+  function runScript(npc, actionId) {
+    var pool = npc.lines[actionId] || npc.lines.any;
+    return Promise.resolve(pool[Math.floor(Math.random() * pool.length)]);
+  }
+
+  var LABEL = { builtin: "瀏覽器內建 AI", cloud: "雲端 AI", script: "預寫台詞" };
+
+  async function generate(actionId, saidText, playerPrompt) {
+    if (state.busy) return;
+    state.busy = true;
+    setBusy(true);
+
+    var npc = currentNpc();
+    var mode = els.mode.value;
+    var order = mode === "auto" ? ["builtin", "cloud", "script"] : [mode];
+    els.said.textContent = saidText;
+    els.line.textContent = "……";
+    els.line.classList.add("pending");
+    els.meta.textContent = "生成中";
+
+    var onText = function (t) {
+      els.line.classList.remove("pending");
+      els.line.textContent = clean(t);
+    };
+
+    var done = false;
+    for (var i = 0; i < order.length && !done; i++) {
+      var eng = order[i];
+      var t0 = performance.now();
+      try {
+        var text;
+        if (eng === "builtin") text = await runBuiltin(npc, playerPrompt, onText);
+        else if (eng === "cloud") text = await runCloud(npc, playerPrompt, onText);
+        else text = await runScript(npc, actionId);
+        var ms = Math.round(performance.now() - t0);
+        els.line.classList.remove("pending");
+        els.line.textContent = text;
+        els.meta.textContent = "來源 " + LABEL[eng] + " · " + ms + " ms · " + text.length + " 字";
+        log(npc.name + "：由「" + LABEL[eng] + "」生成，" + ms + " ms。", "ok");
+        done = true;
+      } catch (e) {
+        var why = e && e.message ? e.message : String(e);
+        var next = order[i + 1];
+        log("「" + LABEL[eng] + "」失敗：" + why + (next ? " → 退回「" + LABEL[next] + "」。" : ""), "warn");
+        if (eng === "cloud" && e && e.code === "not_granted") {
+          state.cloud = "unavailable";
+          state.sample = null;
+          renderCloud();
+        }
+      }
+    }
+    if (!done) {
+      els.line.classList.remove("pending");
+      els.line.textContent = "（沒有產生台詞。把引擎改回「自動」可以退回預寫台詞。）";
+      els.meta.textContent = "生成失敗，原因見右側紀錄";
+    }
+    state.busy = false;
+    setBusy(false);
+  }
+
+  function setBusy(b) {
+    var btns = els.actions.querySelectorAll("button");
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = b;
+    els.say.disabled = b;
+  }
+
+  /* ---------- wiring ---------- */
+  NPCS.forEach(function (n) {
+    var o = document.createElement("option");
+    o.value = n.id; o.textContent = n.name;
+    els.npc.appendChild(o);
+  });
+
+  ACTIONS.forEach(function (a) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.textContent = a.label;
+    b.addEventListener("click", function () { generate(a.id, a.say, a.prompt); });
+    els.actions.appendChild(b);
+  });
+
+  function showNpc() {
+    var n = currentNpc();
+    els.speaker.textContent = n.name;
+    els.persona.textContent = n.persona;
+    els.said.textContent = "（你走向" + n.name.split(" ").pop() + "）";
+    els.line.classList.remove("pending");
+    els.line.textContent = "選一個動作開始。";
+    els.meta.textContent = "尚未生成";
+  }
+  els.npc.addEventListener("change", showNpc);
+
+  els.form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var v = els.free.value.trim();
+    if (!v) { els.free.focus(); return; }
+    els.free.value = "";
+    generate("any", "你：「" + v + "」", "玩家對你說：「" + v + "」");
+  });
+
+  showNpc();
+  renderBuiltin();
+  renderCloud();
+  detectBuiltin();
+  detectCloud();
+})();
+</script>
+</body>
+</html>
