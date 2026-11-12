@@ -81,6 +81,41 @@ header h1 {
 }
 header p { margin: 0; color: var(--muted); max-width: 62ch; }
 
+/* Clock banner */
+.clock {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--accent);
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px 18px;
+  align-items: center;
+}
+.clock-time {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 30px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.clock-day { font-size: 12px; color: var(--muted); }
+.clock-line {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 19px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.clock-line.pending { color: var(--muted); }
+.clock-meta { grid-column: 1 / -1; }
+@media (max-width: 760px) {
+  .clock { grid-template-columns: minmax(0, 1fr); }
+  .clock button { justify-self: start; }
+}
+
 /* Engines */
 .engines {
   display: grid;
@@ -228,6 +263,16 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     <h1>NPC 台詞生成測試台</h1>
     <p>選一個角色，對他做點什麼，看台詞由哪一層產生。三層依序退回：瀏覽器內建 AI、雲端 AI、預寫台詞。</p>
   </header>
+
+  <section class="clock" aria-label="報時台詞" aria-live="polite">
+    <div>
+      <div class="clock-time" id="clock-time">--:--</div>
+      <div class="clock-day" id="clock-day">查詢台北時間中</div>
+    </div>
+    <div class="clock-line pending" id="clock-line">……</div>
+    <button type="button" id="clock-refresh">重查時間，再酸一句</button>
+    <div class="meta clock-meta" id="clock-meta">尚未生成</div>
+  </section>
 
   <section class="engines" aria-label="引擎狀態">
     <div class="engine" id="eng-builtin" data-state="off">
@@ -404,9 +449,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
       state.builtinWhy = "找不到 LanguageModel：瀏覽器不支援，或這個嵌入框架沒被授權";
       renderBuiltin();
       log("內建 AI：找不到 LanguageModel 物件。", "warn");
-      return;
+      return Promise.resolve();
     }
-    Promise.resolve()
+    return Promise.resolve()
       .then(function () { return self.LanguageModel.availability(); })
       .then(function (a) {
         state.builtin = a === "available" || a === "downloadable" || a === "downloading" ? a : "unavailable";
@@ -443,14 +488,14 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     return String(text || "").trim().replace(/^["「『“]+|["」』”]+$/g, "").trim();
   }
 
-  async function runBuiltin(npc, playerPrompt, onText) {
+  async function runBuiltin(key, sys, playerPrompt, onText) {
     if (state.builtin === "unavailable" || state.builtin === "checking") {
       throw new Error(state.builtinWhy || "內建 AI 不可用");
     }
-    var session = state.sessions[npc.id];
+    var session = state.sessions[key];
     if (!session) {
       session = await self.LanguageModel.create({
-        initialPrompts: [{ role: "system", content: systemPrompt(npc) }],
+        initialPrompts: [{ role: "system", content: sys }],
         monitor: function (m) {
           m.addEventListener("downloadprogress", function (e) {
             state.builtin = "downloading";
@@ -459,7 +504,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
           });
         }
       });
-      state.sessions[npc.id] = session;
+      state.sessions[key] = session;
       state.builtin = "available";
       renderBuiltin();
     }
@@ -481,9 +526,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     return out;
   }
 
-  async function runCloud(npc, playerPrompt, onText) {
+  async function runCloud(sys, playerPrompt, onText) {
     if (!state.sample) throw new Error("雲端 AI 不可用");
-    var input = systemPrompt(npc) + "\n\n情境：" + playerPrompt;
+    var input = sys + "\n\n情境：" + playerPrompt;
     var res = await state.sample(input, {
       modelTier: "quick",
       cache: false,
@@ -525,8 +570,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
       var t0 = performance.now();
       try {
         var text;
-        if (eng === "builtin") text = await runBuiltin(npc, playerPrompt, onText);
-        else if (eng === "cloud") text = await runCloud(npc, playerPrompt, onText);
+        if (eng === "builtin") text = await runBuiltin(npc.id, systemPrompt(npc), playerPrompt, onText);
+        else if (eng === "cloud") text = await runCloud(systemPrompt(npc), playerPrompt, onText);
         else text = await runScript(npc, actionId);
         var ms = Math.round(performance.now() - t0);
         els.line.classList.remove("pending");
@@ -594,11 +639,129 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     generate("any", "你：「" + v + "」", "玩家對你說：「" + v + "」");
   });
 
+  /* ---------- clock banner ---------- */
+  var TIME_URL = "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Taipei";
+  var DAYS = { Monday: "週一", Tuesday: "週二", Wednesday: "週三", Thursday: "週四", Friday: "週五", Saturday: "週六", Sunday: "週日" };
+  var CLOCK_SYS = "你是遊戲畫面上方的報時精靈。個性：正向樂觀、很幽默，但講話超級欠扁（臭屁、愛調侃玩家）。" +
+    "請針對現在的時間對玩家說一句話，內容要跟這個時間點有關，骨子裡是鼓勵，嘴上卻很欠揍，不可以真的惡意或人身攻擊。" +
+    "用繁體中文，只說一句，不超過 40 個字。只輸出台詞本身，不要加引號、時間標題或任何解釋。";
+  var CLOCK_LINES = {
+    dawn: ["這時間還醒著？很好，黑眼圈也是一種裝備。", "凌晨了欸，你的肝正在寫辭職信，但我看好你。"],
+    morning: ["早安！今天也是充滿希望的一天，雖然你看起來還沒開機。", "起得來就贏一半了，另一半我就不說破。"],
+    noon: ["中午了，吃飽才有力氣繼續假裝很忙，加油。", "午餐時間！你今天最有產值的決定就是吃什麼。"],
+    afternoon: ["下午了還沒放棄？厲害，我賭你撐不過三點的。", "離下班又近一點了，你今天有進度嗎？沒有也沒關係啦。"],
+    evening: ["晚上了，今天辛苦了，雖然我也不確定你忙了什麼。", "天都黑了你還在，這份毅力拿去睡覺該多好。"],
+    night: ["這麼晚還在玩？明天的你會感謝……不，會恨你，但加油。", "夜深了，夢想還在，頭髮就不一定了。"]
+  };
+  var clock = { now: null, source: "", busy: false };
+  var cEls = { time: $("clock-time"), day: $("clock-day"), line: $("clock-line"), meta: $("clock-meta"), btn: $("clock-refresh") };
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+  function localTaipei() {
+    var parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Taipei", hour12: false, weekday: "long", hour: "2-digit", minute: "2-digit"
+    }).formatToParts(new Date());
+    var o = {};
+    parts.forEach(function (p) { o[p.type] = p.value; });
+    return { hour: Number(o.hour) % 24, minute: Number(o.minute), dayOfWeek: o.weekday };
+  }
+
+  async function loadTime() {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 5000);
+    try {
+      var res = await fetch(TIME_URL, { signal: ctrl.signal, cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      var j = await res.json();
+      if (typeof j.hour !== "number" || typeof j.minute !== "number") throw new Error("回應格式不符");
+      clock.now = { hour: j.hour, minute: j.minute, dayOfWeek: j.dayOfWeek || "" };
+      clock.source = "timeapi.io";
+      log("時間：timeapi.io 回報 " + pad(j.hour) + ":" + pad(j.minute) + "。", "ok");
+    } catch (e) {
+      clock.now = localTaipei();
+      clock.source = "裝置時鐘";
+      var why = e && e.name === "AbortError" ? "逾時" : (e && e.message ? e.message : String(e));
+      log("時間：timeapi.io 查詢失敗（" + why + "），改用裝置時鐘換算台北時間。", "warn");
+    } finally {
+      clearTimeout(timer);
+    }
+    cEls.time.textContent = pad(clock.now.hour) + ":" + pad(clock.now.minute);
+    cEls.day.textContent = "台北 " + (DAYS[clock.now.dayOfWeek] || "") + " · 來自" + clock.source;
+  }
+
+  function period(h) {
+    if (h < 5) return "dawn";
+    if (h < 11) return "morning";
+    if (h < 14) return "noon";
+    if (h < 18) return "afternoon";
+    if (h < 22) return "evening";
+    return "night";
+  }
+
+  async function clockGenerate(onLoad) {
+    if (clock.busy || !clock.now) return;
+    clock.busy = true;
+    cEls.btn.disabled = true;
+    var mode = els.mode.value;
+    var order;
+    if (onLoad) order = state.builtin === "available" ? ["builtin", "script"] : ["script"];
+    else order = mode === "auto" ? ["builtin", "cloud", "script"] : [mode];
+
+    var t = clock.now;
+    var prompt = "現在是台北時間" + (DAYS[t.dayOfWeek] || "") + " " + pad(t.hour) + ":" + pad(t.minute) + "。請對玩家說一句。";
+    cEls.line.textContent = "……";
+    cEls.line.classList.add("pending");
+    cEls.meta.textContent = "生成中";
+    var onText = function (x) {
+      cEls.line.classList.remove("pending");
+      cEls.line.textContent = clean(x);
+    };
+
+    var done = false;
+    for (var i = 0; i < order.length && !done; i++) {
+      var eng = order[i];
+      var t0 = performance.now();
+      try {
+        var text;
+        if (eng === "builtin") text = await runBuiltin("clock", CLOCK_SYS, prompt, onText);
+        else if (eng === "cloud") text = await runCloud(CLOCK_SYS, prompt, onText);
+        else {
+          var pool = CLOCK_LINES[period(t.hour)];
+          text = pool[Math.floor(Math.random() * pool.length)];
+        }
+        var ms = Math.round(performance.now() - t0);
+        cEls.line.classList.remove("pending");
+        cEls.line.textContent = text;
+        cEls.meta.textContent = "來源 " + LABEL[eng] + " · " + ms + " ms · " + text.length + " 字";
+        log("報時台詞：由「" + LABEL[eng] + "」生成，" + ms + " ms。", "ok");
+        done = true;
+      } catch (e) {
+        var why = e && e.message ? e.message : String(e);
+        var next = order[i + 1];
+        log("報時台詞「" + LABEL[eng] + "」失敗：" + why + (next ? " → 退回「" + LABEL[next] + "」。" : ""), "warn");
+      }
+    }
+    if (!done) {
+      cEls.line.classList.remove("pending");
+      cEls.line.textContent = "（沒有產生台詞。把引擎改回「自動」再試一次。）";
+      cEls.meta.textContent = "生成失敗，原因見執行紀錄";
+    }
+    clock.busy = false;
+    cEls.btn.disabled = false;
+  }
+
+  cEls.btn.addEventListener("click", function () {
+    if (clock.busy) return;
+    cEls.btn.disabled = true;
+    loadTime().then(function () { cEls.btn.disabled = false; return clockGenerate(false); });
+  });
+
   showNpc();
   renderBuiltin();
   renderCloud();
-  detectBuiltin();
   detectCloud();
+  Promise.all([detectBuiltin(), loadTime()]).then(function () { clockGenerate(true); });
 })();
 </script>
 </body>
