@@ -53,6 +53,12 @@
   .status { font-size: 13px; color: var(--ok); min-height: 20px; }
   .steps { margin: 18px 0 0; padding-left: 20px; font-size: 14px; color: var(--muted); }
   .steps li { margin-bottom: 4px; }
+
+  /* 報時台詞：額外功能，低調呈現。沒有成功產生就整個不顯示（hidden 屬性）。 */
+  .quip {
+    margin: 40px 0 0; text-align: center;
+    font-size: 12px; line-height: 1.7; color: var(--muted); opacity: .7;
+  }
 </style>
 </head>
 <body>
@@ -114,6 +120,8 @@
       </ol>
     </div>
   </div>
+
+  <p class="quip" id="quip" hidden></p>
 </div>
 
 <script>
@@ -308,6 +316,7 @@
     lang = code;
     try { localStorage.setItem("sig-lang", code); } catch (e) { /* 無痕模式略過 */ }
     applyLang();
+    showQuip(); // 台詞跟著介面語言走
   }
 
   function render() {
@@ -382,6 +391,270 @@
     }
   };
   probe.src = logoUrl(true);
+
+  // ===================================================================
+  // 額外功能：報時台詞
+  // 時間來自 timeapi.io，台詞由 Chrome 內建 AI（Gemini Nano）產生。
+  // 任何一步失敗都靜默略過，畫面上完全不顯示。
+  // ===================================================================
+  const QUIP_TIME_URL = "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Taipei";
+  const QUIP_TIME_TTL = 60000; // 時間快取 60 秒，避免切語言時重複打 API
+  const QUIP_TIMEOUT  = 6000;
+
+  // 英文版由程式隨機挑一個雙關點子餵給模型
+  const PUN_IDEAS = [
+    "second (unit of time / a moment to spare)",
+    "tock sounds like talk",
+    "hands (of a clock / helping hands)",
+    "wound up (clock spring / tense)",
+    "time flies (passes quickly / insects called time flies)",
+    "watch (a timepiece / to look at)",
+    "face (of a clock / a person's face)",
+    "alarmed (alarm clock / startled)",
+    "minute (sixty seconds / very tiny)",
+    "killing time (wasting time / a crime against the clock)",
+    "overtime (extra work hours / over the clock)",
+    "on the dot (exactly on time / a small spot)"
+  ];
+
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const hhmm = (t) => pad2(t.h) + ":" + pad2(t.m);
+  const ampm = (t) => (t.h % 12 === 0 ? 12 : t.h % 12) + ":" + pad2(t.m) + (t.h < 12 ? " a.m." : " p.m.");
+  const hasHan = (s) => /[一-鿿]/.test(s);
+  const hanCount = (s) => Array.from(s.replace(/\s+/g, "")).length;
+  const wordCount = (s) => s.trim().split(/\s+/).filter(Boolean).length;
+
+  // 共同清理：去頭尾引號、把換行壓成空格
+  function tidy(s) {
+    return String(s == null ? "" : s)
+      .replace(/\s*[\r\n]+\s*/g, " ")
+      .trim()
+      .replace(/^[“”"'「」『』]+/, "")
+      .replace(/[“”"'「」『』]+$/, "")
+      .trim();
+  }
+
+  const ZH_BAD = /哈哈|笑點|笑点|冷笑話|冷笑话|這個笑話|这个笑话|很好笑|開玩笑|开玩笑/;
+  const EN_BAD = /\b(haha|lol|get it|pun intended|just kidding)\b/i;
+
+  const QUIP_SPEC = {
+    "zh-Hant": {
+      system: "你負責報時，順便講一個不好笑的反笑話：鋪陳像笑話，答案卻是理所當然的廢話。\n" +
+              "每次收到一個時間，就用一問一答，或一句陳述加一句廢話結尾。語氣平淡。\n" +
+              "繁體中文，35 字以內，只輸出笑話本身。",
+      examples: [
+        ["11:14", "現在十一點十四分。再過四十六分鐘就是十二點。不客氣。"],
+        ["07:30", "為什麼七點半要起床？因為八點起床會遲到。"],
+        ["15:00", "下午三點最適合做什麼？做三點該做的事。"],
+        ["23:50", "為什麼快十二點了還不睡？因為還沒睡著。"]
+      ],
+      buildInput: (t) => hhmm(t),
+      clean: (s) => tidy(s).replace(/[!！]/g, "。"),
+      valid: (s) => hasHan(s) && hanCount(s) >= 8 && hanCount(s) <= 45 &&
+                    !s.includes("｜") && !ZH_BAD.test(s)
+    },
+    "zh-Hans": {
+      system: "你负责报时，顺便讲一个不好笑的反笑话：铺陈像笑话，答案却是理所当然的废话。\n" +
+              "每次收到一个时间，就用一问一答，或一句陈述加一句废话结尾。语气平淡。\n" +
+              "简体中文，35 字以内，只输出笑话本身。",
+      examples: [
+        ["11:14", "现在十一点十四分。再过四十六分钟就是十二点。不客气。"],
+        ["07:30", "为什么七点半要起床？因为八点起床会迟到。"],
+        ["15:00", "下午三点最适合做什么？做三点该做的事。"],
+        ["23:50", "为什么快十二点了还不睡？因为还没睡着。"]
+      ],
+      buildInput: (t) => hhmm(t),
+      clean: (s) => tidy(s).replace(/[!！]/g, "。"),
+      valid: (s) => hasHan(s) && hanCount(s) >= 8 && hanCount(s) <= 45 &&
+                    !s.includes("｜") && !ZH_BAD.test(s)
+    },
+    "en": {
+      system: "You announce the time with a short, groan-worthy pun about time or clocks.\n" +
+              "Each message gives you a time and a pun idea; turn them into one or two short sentences.\n" +
+              "Deadpan tone. Under 25 words. Output only the joke.",
+      examples: [
+        ["11:14 a.m. | pun: second (unit of time / a moment to spare)",
+         "It's 11:14. I'd tell you a joke about time, but you don't have a second."],
+        ["9:05 a.m. | pun: tock sounds like talk",
+         "It's 9:05. The clock got in trouble this morning. It tocked too much."],
+        ["2:30 p.m. | pun: hands (of a clock / helping hands)",
+         "It's 2:30. I asked the clock for help. It said its hands were full."],
+        ["10:10 p.m. | pun: wound up (clock spring / tense)",
+         "It's 10:10 p.m. Don't get too wound up. That's the clock's job."]
+      ],
+      buildInput: (t) => ampm(t) + " | pun: " + PUN_IDEAS[Math.floor(Math.random() * PUN_IDEAS.length)],
+      clean: (s) => tidy(s).replace(/!/g, "."),
+      valid: (s) => !hasHan(s) && wordCount(s) >= 5 && wordCount(s) <= 30 &&
+                    !s.includes("|") && !/pun:/i.test(s) && !EN_BAD.test(s)
+    }
+  };
+
+  // Chrome 內建 AI 的進入點，新舊版命名都試
+  function getLanguageModel() {
+    if (typeof LanguageModel !== "undefined" && LanguageModel) return LanguageModel;
+    if (self.LanguageModel) return self.LanguageModel;
+    if (self.ai && self.ai.languageModel) return self.ai.languageModel;
+    return null;
+  }
+
+  // 模型狀態："ready" 已就緒、"download" 需要下載或下載中、"no" 不支援
+  async function modelState(LM) {
+    try {
+      if (typeof LM.availability === "function") {
+        const a = await LM.availability();
+        if (a === "available") return "ready";
+        if (a === "downloadable" || a === "downloading") return "download";
+        return "no";
+      }
+      if (typeof LM.capabilities === "function") {
+        const c = await LM.capabilities();
+        if (c && c.available === "readily") return "ready";
+        if (c && c.available === "after-download") return "download";
+      }
+    } catch (e) { /* 視為不可用 */ }
+    return "no";
+  }
+
+  // Chrome 規定：模型需要下載時，create() 必須在使用者操作（點擊、按鍵）之後才能呼叫。
+  // 所以等使用者第一次和頁面互動，再開始下載。
+  let gesturePromise = null;
+  function firstUserGesture() {
+    if (!gesturePromise) {
+      gesturePromise = new Promise((resolve) => {
+        const done = () => {
+          ["pointerdown", "keydown", "touchstart"].forEach(ev =>
+            window.removeEventListener(ev, done, true));
+          resolve();
+        };
+        ["pointerdown", "keydown", "touchstart"].forEach(ev =>
+          window.addEventListener(ev, done, true));
+      });
+    }
+    return gesturePromise;
+  }
+
+  // 主動下載模型：create() 會等下載完成才回傳。下載進度不顯示，完成前台詞維持隱藏。
+  let downloadPromise = null;
+  function ensureModelDownloaded(LM) {
+    if (!downloadPromise) {
+      downloadPromise = firstUserGesture()
+        .then(() => LM.create({ monitor(m) { m.addEventListener("downloadprogress", () => {}); } }))
+        .then((s) => { try { s.destroy(); } catch (e) {} return true; })
+        .catch(() => { downloadPromise = null; return false; }); // 失敗允許下次互動再試
+    }
+    return downloadPromise;
+  }
+
+  // 每次都開新的 session：只含系統提示與範例，不累積先前輸出
+  async function newSession(LM, spec) {
+    const initialPrompts = [{ role: "system", content: spec.system }];
+    spec.examples.forEach(([u, a]) => {
+      initialPrompts.push({ role: "user", content: u });
+      initialPrompts.push({ role: "assistant", content: a });
+    });
+    try {
+      return await LM.create({ initialPrompts });
+    } catch (e) {
+      // 舊版 API：system 角色不支援，要改用 systemPrompt 參數
+      return await LM.create({ systemPrompt: spec.system, initialPrompts: initialPrompts.slice(1) });
+    }
+  }
+
+  // timeapi.io 目前回傳 hour / minute，另有 time ("HH:MM") 與 dateTime 兩個欄位。
+  // 三種都接受，任何一種能解析出合理的時分就算成功。
+  function parseTime(j) {
+    const ok = (h, m) => Number.isInteger(h) && Number.isInteger(m) &&
+                         h >= 0 && h <= 23 && m >= 0 && m <= 59 ? { h, m } : null;
+    if (j && typeof j === "object") {
+      const direct = ok(Number(j.hour), Number(j.minute));
+      if (direct) return direct;
+      for (const field of [j.time, j.dateTime]) {
+        const hit = typeof field === "string" && field.match(/(\d{1,2}):(\d{2})/);
+        if (hit) {
+          const parsed = ok(Number(hit[1]), Number(hit[2]));
+          if (parsed) return parsed;
+        }
+      }
+    }
+    return null;
+  }
+
+  let timeCache = null;
+  async function taipeiTime() {
+    if (timeCache && Date.now() - timeCache.at < QUIP_TIME_TTL) return timeCache.value;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), QUIP_TIMEOUT);
+    try {
+      const res = await fetch(QUIP_TIME_URL, { signal: ctrl.signal, cache: "no-store" });
+      if (!res.ok) return null;
+      const value = parseTime(await res.json());
+      if (!value) return null;
+      timeCache = { value, at: Date.now() };
+      return value;
+    } catch (e) {
+      return null; // 離線、CORS、逾時等
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function makeQuip(code) {
+    const spec = QUIP_SPEC[code];
+    if (!spec) return null;
+
+    const LM = getLanguageModel();
+    if (!LM) return null;                       // 沒有瀏覽器 AI
+    const state = await modelState(LM);
+    if (state === "no") return null;            // 裝置不支援
+    if (state === "download" && !(await ensureModelDownloaded(LM))) return null; // 下載失敗
+
+    const t = await taipeiTime();                // 下載完才抓時間，避免時間過期
+    if (!t) return null;                        // 時間 API 失敗
+
+    const input = spec.buildInput(t);
+    for (let attempt = 0; attempt < 2; attempt++) {  // 不合格就重新生成一次
+      let session = null;
+      try {
+        session = await newSession(LM, spec);
+        const text = spec.clean(await session.prompt(input));
+        if (spec.valid(text)) return text;
+      } catch (e) {
+        return null;                            // 生成過程出錯 → 不顯示
+      } finally {
+        try { if (session && session.destroy) session.destroy(); } catch (e) {}
+      }
+    }
+    return null;                                // 兩次都不合格 → 不顯示
+  }
+
+  let quipToken = 0;
+  const quipCache = {};
+
+  function hideQuip() {
+    const el = $("quip");
+    el.hidden = true;
+    el.textContent = "";
+  }
+
+  async function showQuip() {
+    const code = lang;
+    const mine = ++quipToken;
+    hideQuip();
+
+    let text = quipCache[code];
+    if (!text) {
+      try { text = await makeQuip(code); } catch (e) { text = null; }
+    }
+    if (mine !== quipToken) return;             // 期間切換過語言就放棄這次結果
+    if (!text) return;                          // 任何失敗都不顯示
+
+    quipCache[code] = text;
+    const el = $("quip");
+    el.textContent = text;
+    el.hidden = false;
+  }
+
+  showQuip();
 </script>
 </body>
 </html>
