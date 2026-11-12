@@ -110,6 +110,8 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   text-wrap: balance;
 }
 .clock-line.pending { color: var(--muted); }
+.clock-lines { display: flex; flex-direction: column; gap: 6px; }
+.clock-line.en { font-family: var(--font-body); font-weight: 500; font-size: 16px; }
 .clock-meta { grid-column: 1 / -1; }
 .clock-actions { display: flex; flex-direction: column; gap: 6px; }
 .tests {
@@ -281,15 +283,18 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     <p>選一個角色，對他做點什麼，看台詞由哪一層產生。三層依序退回：瀏覽器內建 AI、雲端 AI、預寫台詞。</p>
   </header>
 
-  <section class="clock" aria-label="報時台詞" aria-live="polite">
+  <section class="clock" aria-label="報時冷笑話" aria-live="polite">
     <div>
       <div class="clock-time" id="clock-time">--:--</div>
       <div class="clock-day" id="clock-day">查詢台北時間中</div>
     </div>
-    <div class="clock-line pending" id="clock-line">……</div>
+    <div class="clock-lines">
+      <div class="clock-line pending" id="clock-zh" lang="zh-Hant">……</div>
+      <div class="clock-line en pending" id="clock-en" lang="en">…</div>
+    </div>
     <div class="clock-actions">
-      <button type="button" id="clock-refresh">重查時間，再說一句</button>
-      <button type="button" id="clock-test">連續生成 5 句</button>
+      <button type="button" id="clock-refresh">重查時間，再講一個</button>
+      <button type="button" id="clock-test">中英各測 5 句</button>
     </div>
     <div class="meta clock-meta" id="clock-meta">尚未生成</div>
     <ol class="tests" id="clock-tests" hidden></ol>
@@ -689,84 +694,62 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     generate("any", "你：「" + v + "」", "玩家對你說：「" + v + "」");
   });
 
-  /* ---------- clock banner ---------- */
+  /* ---------- clock banner: a Chinese anti-joke and an English pun about the time ---------- */
   var TIME_URL = "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Taipei";
   var DAYS = { Monday: "週一", Tuesday: "週二", Wednesday: "週三", Thursday: "週四", Friday: "週五", Saturday: "週六", Sunday: "週日" };
-  // Three rules only; tone, length and punctuation are carried by the example exchanges.
-  var CLOCK_SYS = "你是一位嘴硬心軟的老茶師，負責報時。每次收到「時間｜小事｜意象」，就說兩個短句：" +
-    "第一句平淡地拿那件小事調侃對方，第二句借那個意象不著痕跡地體諒他。" +
-    "繁體中文，合計 35 字以內，只輸出台詞。";
-  var CLOCK_SHOTS = [
-    { q: "07:40｜小事：賴床｜意象：太陽", a: "太陽都上工了你才醒。也好，它本來就該替你先暖場。" },
-    { q: "10:20｜小事：慢熱｜意象：茶", a: "茶泡到第三回才出味。你慢熱，我不意外，也不擔心。" },
-    { q: "15:05｜小事：眼皮｜意象：石頭", a: "三點的眼皮比石頭重。撐不住也沒人笑你，頂多我笑。" },
-    { q: "20:30｜小事：待辦清單｜意象：爐火", a: "待辦清單又原封不動帶回家了。放著吧，爐火也不是一次就燒旺的。" }
-  ];
-  // The page picks the small thing and the image; the model only joins them.
-  var CLOCK_SEEDS = {
-    dawn: { things: ["鬧鐘", "還亮著的螢幕", "明天的早會"], images: ["月亮", "星星", "露水"] },
-    morning: { things: ["鬧鐘", "賴床", "還沒喝的咖啡"], images: ["太陽", "潮水", "晨霧"] },
-    noon: { things: ["還沒訂的便當", "早上擱著的事", "午休"], images: ["影子", "日頭", "蟬聲"] },
-    afternoon: { things: ["眼皮", "第三杯咖啡", "沒回的訊息"], images: ["茶", "慢燉的湯", "斜陽"] },
-    evening: { things: ["待辦清單", "加班", "沒洗的碗"], images: ["爐火", "晚霞", "歸鳥"] },
-    night: { things: ["鬧鐘", "放不下的手機", "明天的自己"], images: ["月亮", "燈", "夜車"] }
-  };
-  var CLOCK_LINES = {
-    dawn: ["這時間還醒著，鬧鐘聽了都想嘆氣。去睡吧，月亮會替你把夜值完。", "螢幕比星星還晚熄。算了，露水也是熬過夜才成形的。"],
-    morning: ["太陽都上工了你才醒。也好，它本來就該替你先暖場。", "鬧鐘響了五回你才理它。不急，潮水也是一波一波才上岸。"],
-    noon: ["早上的事還擱著吧。沒關係，影子最短的時候最適合重來。", "便當又拖到現在才訂。吃吧，日頭也得過了正午才肯慢下來。"],
-    afternoon: ["三點的眼皮比石頭重。撐不住也沒人笑你，頂多我笑。", "茶泡到第三回才出味。你慢熱，我不意外，也不擔心。"],
-    evening: ["待辦清單又原封不動帶回家了。放著吧，爐火也不是一次就燒旺的。", "碗還在水槽裡等你吧。歇會兒，歸鳥也是先落腳才理毛。"],
-    night: ["手機還捨不得放下。睡吧，燈關了，路也不會跑掉。", "又把事情推給明天的自己。也罷，夜車再慢，天亮前總會到站。"]
-  };
-  var BANNED = /加油|相信你|你很棒|你可以的|你一定|別放棄|不要放棄/;
 
-  function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
-
-  function clockSeed(t) {
-    var s = CLOCK_SEEDS[period(t.hour)];
-    return pad(t.hour) + ":" + pad(t.minute) + "｜小事：" + pick(s.things) + "｜意象：" + pick(s.images);
-  }
-
-  // The checks a small model cannot be trusted to keep on its own.
-  function judge(raw) {
-    var text = clean(raw).replace(/\s*\n+\s*/g, "").replace(/[!！]+/g, "。").replace(/。{2,}/g, "。");
-    text = clean(text);
-    var parts = text.split(/[。？?…]+/).filter(function (p) { return p.trim().length > 0; });
-    var hit = text.match(BANNED);
-    var reason = "";
-    if (/[｜|]|小事：|意象：/.test(text)) reason = "照抄了輸入格式";
-    else if (hit) reason = "直接鼓勵（「" + hit[0] + "」）";
-    else if (text.length > 45) reason = "太長（" + text.length + " 字）";
-    else if (text.length < 10) reason = "太短（" + text.length + " 字）";
-    else if (parts.length < 2) reason = "只有一句，少了先戳再軟的結構";
-    return { ok: !reason, text: text, reason: reason };
-  }
-
-  function clockRaw(eng, seed, onText) {
-    if (eng === "builtin") return runBuiltin("clock", CLOCK_SYS, seed, onText, { shots: CLOCK_SHOTS, fresh: true });
-    return runCloud(CLOCK_SYS, seed, onText, CLOCK_SHOTS);
-  }
-
-  // One retry with a new seed, then give up so the caller can fall back.
-  async function clockAi(eng, t, onText) {
-    var last = "";
-    for (var n = 0; n < 2; n++) {
-      var v = judge(await clockRaw(eng, clockSeed(t), onText));
-      if (v.ok) return v.text;
-      last = v.reason;
-      log("報時台詞不合格：" + v.reason + "。原句：「" + v.text + "」" + (n === 0 ? " → 重新生成一次。" : ""), "warn");
+  // Few rules; tone, length and punctuation are carried by the example exchanges.
+  var LANGS = {
+    zh: {
+      name: "中文",
+      key: "clock-zh",
+      sys: "你負責報時，順便講一個不好笑的反笑話：鋪陳像笑話，答案卻是理所當然的廢話。" +
+        "每次收到一個時間，就用一問一答，或一句陳述加一句廢話結尾。語氣平淡。" +
+        "繁體中文，35 字以內，只輸出笑話本身。",
+      shots: [
+        { q: "11:14", a: "現在十一點十四分。再過四十六分鐘就是十二點。不客氣。" },
+        { q: "07:30", a: "為什麼七點半要起床？因為八點起床會遲到。" },
+        { q: "15:00", a: "下午三點最適合做什麼？做三點該做的事。" },
+        { q: "23:50", a: "為什麼快十二點了還不睡？因為還沒睡著。" }
+      ]
+    },
+    en: {
+      name: "English",
+      key: "clock-en",
+      sys: "You announce the time with a short, groan-worthy pun about time or clocks. " +
+        "Each message gives you a time and a pun idea; turn them into one or two short sentences. " +
+        "Deadpan tone. Under 25 words. Output only the joke.",
+      shots: [
+        { q: "11:14 a.m. | pun: second (unit of time / a moment to spare)", a: "It's 11:14. I'd tell you a joke about time, but you don't have a second." },
+        { q: "9:05 a.m. | pun: tock sounds like talk", a: "It's 9:05. The clock got in trouble this morning. It tocked too much." },
+        { q: "2:30 p.m. | pun: hands (of a clock / helping hands)", a: "It's 2:30. I asked the clock for help. It said its hands were full." },
+        { q: "10:10 p.m. | pun: wound up (clock spring / tense)", a: "It's 10:10 p.m. Don't get too wound up. That's the clock's job." }
+      ]
     }
-    throw new Error("連續兩次不合格（" + last + "）");
-  }
+  };
+  // The page supplies the pun idea; the model only has to phrase it.
+  var PUNS = [
+    "second (unit of time / a moment to spare)",
+    "tock sounds like talk",
+    "hands (of a clock / helping hands)",
+    "wound up (clock spring / tense)",
+    "time flies (passes quickly / insects called time flies)",
+    "watch (a timepiece / to look at)",
+    "face (of a clock / a person's face)",
+    "alarmed (alarm clock / startled)",
+    "minute (sixty seconds / very tiny)",
+    "killing time (wasting time / a crime against the clock)",
+    "overtime (extra work hours / over the clock)",
+    "on the dot (exactly on time / a small spot)"
+  ];
   var clock = { now: null, source: "", busy: false };
   var cEls = {
-    time: $("clock-time"), day: $("clock-day"), line: $("clock-line"), meta: $("clock-meta"),
+    time: $("clock-time"), day: $("clock-day"), zh: $("clock-zh"), en: $("clock-en"), meta: $("clock-meta"),
     btn: $("clock-refresh"), test: $("clock-test"), tests: $("clock-tests")
   };
   function clockBusy(b) { clock.busy = b; cEls.btn.disabled = b; cEls.test.disabled = b; }
-
   function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
 
   function localTaipei() {
     var parts = new Intl.DateTimeFormat("en-US", {
@@ -800,13 +783,100 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     cEls.day.textContent = "台北 " + (DAYS[clock.now.dayOfWeek] || "") + " · 來自" + clock.source;
   }
 
-  function period(h) {
-    if (h < 5) return "dawn";
-    if (h < 11) return "morning";
-    if (h < 14) return "noon";
-    if (h < 18) return "afternoon";
-    if (h < 22) return "evening";
-    return "night";
+  function zhTime(t) { return pad(t.hour) + ":" + pad(t.minute); }
+  function enTime(t, withPeriod) {
+    var s = (t.hour % 12 || 12) + ":" + pad(t.minute);
+    return withPeriod ? s + (t.hour < 12 ? " a.m." : " p.m.") : s;
+  }
+
+  function seedFor(lang, t) {
+    return lang === "zh" ? zhTime(t) : enTime(t, true) + " | pun: " + pick(PUNS);
+  }
+
+  // Fallback lines are built from the real time, so they stay on topic without any model.
+  function scripted(lang, t) {
+    if (lang === "zh") {
+      var z = zhTime(t);
+      return pick([
+        "現在 " + z + "。一分鐘後會再晚一點。不客氣。",
+        "為什麼現在是 " + z + "？因為上一分鐘已經過了。",
+        z + " 最適合做什麼？做 " + z + " 該做的事。",
+        "猜猜 " + z + " 之後是幾點？對，是下一分鐘。"
+      ]);
+    }
+    var e = enTime(t, false);
+    return pick([
+      "It's " + e + ". I'd tell you a joke about time, but you don't have a second.",
+      "It's " + e + ". The clock got in trouble again. It tocked too much.",
+      "It's " + e + ". Time flies. Clocks just stand there and watch.",
+      "It's " + e + ". I asked the clock for help. It said its hands were full."
+    ]);
+  }
+
+  // The checks a small model cannot be trusted to keep on its own. Funny or not is not checked.
+  function judge(lang, raw) {
+    var text, reason = "";
+    if (lang === "zh") {
+      text = clean(clean(raw).replace(/\s*\n+\s*/g, "").replace(/[!！]+/g, "。").replace(/。{2,}/g, "。"));
+      if (/[｜|]/.test(text)) reason = "照抄了輸入格式";
+      else if (!/[一-鿿]/.test(text)) reason = "不是中文";
+      else if (/哈哈|笑點|冷笑話|這個笑話|很好笑|開玩笑/.test(text)) reason = "自己解釋或評論笑話";
+      else if (text.length > 45) reason = "太長（" + text.length + " 字）";
+      else if (text.length < 8) reason = "太短（" + text.length + " 字）";
+    } else {
+      text = clean(clean(raw).replace(/\s*\n+\s*/g, " ").replace(/!+/g, ".").replace(/\.{2,}/g, "."));
+      var words = text.split(/\s+/).filter(Boolean).length;
+      if (/\|/.test(text) || /\bpun:/i.test(text)) reason = "照抄了輸入格式";
+      else if (/[一-鿿]/.test(text)) reason = "夾雜中文";
+      else if (/\bhaha|\blol\b|get it\b|pun intended|just kidding/i.test(text)) reason = "自己解釋或評論笑話";
+      else if (words > 30) reason = "太長（" + words + " 個字詞）";
+      else if (words < 5) reason = "太短（" + words + " 個字詞）";
+    }
+    return { ok: !reason, text: text, reason: reason };
+  }
+
+  function clockRaw(lang, eng, seed, onText) {
+    var L = LANGS[lang];
+    if (eng === "builtin") return runBuiltin(L.key, L.sys, seed, onText, { shots: L.shots, fresh: true });
+    return runCloud(L.sys, seed, onText, L.shots);
+  }
+
+  // One retry with a new seed, then give up so the caller can fall back.
+  async function clockAi(lang, eng, t, onText) {
+    var last = "";
+    for (var n = 0; n < 2; n++) {
+      var v = judge(lang, await clockRaw(lang, eng, seedFor(lang, t), onText));
+      if (v.ok) return v.text;
+      last = v.reason;
+      log("報時笑話（" + LANGS[lang].name + "）不合格：" + v.reason + "。原句：「" + v.text + "」" + (n === 0 ? " → 重新生成一次。" : ""), "warn");
+    }
+    throw new Error("連續兩次不合格（" + last + "）");
+  }
+
+  async function clockOne(lang, order, t) {
+    var el = cEls[lang];
+    el.textContent = "……";
+    el.classList.add("pending");
+    var onText = function (x) { el.classList.remove("pending"); el.textContent = clean(x); };
+    for (var i = 0; i < order.length; i++) {
+      var eng = order[i];
+      var t0 = performance.now();
+      try {
+        var text = eng === "script" ? scripted(lang, t) : await clockAi(lang, eng, t, onText);
+        var ms = Math.round(performance.now() - t0);
+        el.classList.remove("pending");
+        el.textContent = text;
+        log("報時笑話（" + LANGS[lang].name + "）：由「" + LABEL[eng] + "」生成，" + ms + " ms。", "ok");
+        return LANGS[lang].name + " " + LABEL[eng] + " " + ms + " ms";
+      } catch (e) {
+        var why = e && e.message ? e.message : String(e);
+        var next = order[i + 1];
+        log("報時笑話（" + LANGS[lang].name + "）「" + LABEL[eng] + "」失敗：" + why + (next ? " → 退回「" + LABEL[next] + "」。" : ""), "warn");
+      }
+    }
+    el.classList.remove("pending");
+    el.textContent = lang === "zh" ? "（沒有產生笑話。把引擎改回「自動」再試一次。）" : "(No joke this time.)";
+    return LANGS[lang].name + " 生成失敗";
   }
 
   async function clockGenerate(onLoad) {
@@ -816,45 +886,14 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     var order;
     if (onLoad) order = state.builtin === "available" ? ["builtin", "script"] : ["script"];
     else order = mode === "auto" ? ["builtin", "cloud", "script"] : [mode];
-
-    var t = clock.now;
-    cEls.line.textContent = "……";
-    cEls.line.classList.add("pending");
     cEls.meta.textContent = "生成中";
-    var onText = function (x) {
-      cEls.line.classList.remove("pending");
-      cEls.line.textContent = clean(x);
-    };
-
-    var done = false;
-    for (var i = 0; i < order.length && !done; i++) {
-      var eng = order[i];
-      var t0 = performance.now();
-      try {
-        var text;
-        if (eng === "script") text = pick(CLOCK_LINES[period(t.hour)]);
-        else text = await clockAi(eng, t, onText);
-        var ms = Math.round(performance.now() - t0);
-        cEls.line.classList.remove("pending");
-        cEls.line.textContent = text;
-        cEls.meta.textContent = "來源 " + LABEL[eng] + " · " + ms + " ms · " + text.length + " 字";
-        log("報時台詞：由「" + LABEL[eng] + "」生成，" + ms + " ms。", "ok");
-        done = true;
-      } catch (e) {
-        var why = e && e.message ? e.message : String(e);
-        var next = order[i + 1];
-        log("報時台詞「" + LABEL[eng] + "」失敗：" + why + (next ? " → 退回「" + LABEL[next] + "」。" : ""), "warn");
-      }
-    }
-    if (!done) {
-      cEls.line.classList.remove("pending");
-      cEls.line.textContent = "（沒有產生台詞。把引擎改回「自動」再試一次。）";
-      cEls.meta.textContent = "生成失敗，原因見執行紀錄";
-    }
+    var a = await clockOne("zh", order, clock.now);
+    var b = await clockOne("en", order, clock.now);
+    cEls.meta.textContent = a + " ｜ " + b;
     clockBusy(false);
   }
 
-  /* Five raw generations in a row, each judged but never retried, to show the hit rate. */
+  /* Five raw generations per language, each judged but never retried, to show the hit rate. */
   async function clockTest() {
     if (clock.busy) return;
     var mode = els.mode.value;
@@ -874,7 +913,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     cEls.tests.appendChild(head);
     if (!eng) {
       sum.textContent = mode === "script"
-        ? "預寫台詞不用測。把引擎改成「自動」或指定一種 AI 再按一次。"
+        ? "預寫笑話不用測。把引擎改成「自動」或指定一種 AI 再按一次。"
         : "目前沒有可用的 AI 引擎，無法測試。";
       return;
     }
@@ -882,49 +921,56 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     clockBusy(true);
     if (!clock.now) await loadTime();
     var t = clock.now;
-    var pass = 0;
-    var total = 5;
-    sum.textContent = "用「" + LABEL[eng] + "」測試中 0 / " + total;
-    for (var i = 0; i < total; i++) {
-      var seed = clockSeed(t);
-      var li = document.createElement("li");
-      var pill = document.createElement("span");
-      pill.className = "pill";
-      pill.textContent = "生成中";
-      var txt = document.createElement("span");
-      txt.className = "txt";
-      txt.textContent = "……";
-      var sub = document.createElement("span");
-      sub.className = "sub";
-      sub.textContent = seed;
-      li.appendChild(pill); li.appendChild(txt); li.appendChild(sub);
-      cEls.tests.appendChild(li);
-      var t0 = performance.now();
-      try {
-        var raw = await clockRaw(eng, seed, (function (el) {
-          return function (x) { el.textContent = clean(x); };
-        })(txt));
-        var v = judge(raw);
-        var ms = Math.round(performance.now() - t0);
-        txt.textContent = v.text;
-        if (v.ok) { pass++; pill.textContent = "合格"; pill.className = "pill pass"; }
-        else { pill.textContent = "不合格"; pill.className = "pill fail"; }
-        sub.textContent = seed + " · " + ms + " ms · " + v.text.length + " 字" + (v.ok ? "" : " · " + v.reason);
-      } catch (e) {
-        var why = e && e.message ? e.message : String(e);
-        pill.textContent = "失敗"; pill.className = "pill fail";
-        txt.textContent = "（沒有產生內容）";
-        sub.textContent = seed + " · " + why;
-        if (e && (e.code === "not_granted" || e.code === "rate_limited")) {
-          sum.textContent = "測試中止：" + why;
-          clockBusy(false);
-          return;
+    var per = 5;
+    var pass = { zh: 0, en: 0 };
+    var done = 0;
+    var langs = ["zh", "en"];
+    sum.textContent = "用「" + LABEL[eng] + "」測試中 0 / " + per * 2;
+    for (var k = 0; k < langs.length; k++) {
+      var lang = langs[k];
+      for (var i = 0; i < per; i++) {
+        var seed = seedFor(lang, t);
+        var li = document.createElement("li");
+        var pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = "生成中";
+        var txt = document.createElement("span");
+        txt.className = "txt";
+        txt.lang = lang === "zh" ? "zh-Hant" : "en";
+        txt.textContent = "……";
+        var sub = document.createElement("span");
+        sub.className = "sub";
+        sub.textContent = LANGS[lang].name + " · " + seed;
+        li.appendChild(pill); li.appendChild(txt); li.appendChild(sub);
+        cEls.tests.appendChild(li);
+        var t0 = performance.now();
+        try {
+          var raw = await clockRaw(lang, eng, seed, (function (el) {
+            return function (x) { el.textContent = clean(x); };
+          })(txt));
+          var v = judge(lang, raw);
+          var ms = Math.round(performance.now() - t0);
+          txt.textContent = v.text;
+          if (v.ok) { pass[lang]++; pill.textContent = "合格"; pill.className = "pill pass"; }
+          else { pill.textContent = "不合格"; pill.className = "pill fail"; }
+          sub.textContent = LANGS[lang].name + " · " + seed + " · " + ms + " ms" + (v.ok ? "" : " · " + v.reason);
+        } catch (e) {
+          var why = e && e.message ? e.message : String(e);
+          pill.textContent = "失敗"; pill.className = "pill fail";
+          txt.textContent = "（沒有產生內容）";
+          sub.textContent = LANGS[lang].name + " · " + seed + " · " + why;
+          if (e && (e.code === "not_granted" || e.code === "rate_limited")) {
+            sum.textContent = "測試中止：" + why;
+            clockBusy(false);
+            return;
+          }
         }
+        done++;
+        sum.textContent = "用「" + LABEL[eng] + "」測試中 " + done + " / " + per * 2;
       }
-      sum.textContent = "用「" + LABEL[eng] + "」測試中 " + (i + 1) + " / " + total;
     }
-    sum.textContent = "「" + LABEL[eng] + "」" + total + " 句中 " + pass + " 句合格（未重試的原始結果）";
-    log("報時測試：「" + LABEL[eng] + "」" + total + " 句中 " + pass + " 句合格。", pass >= 4 ? "ok" : "warn");
+    sum.textContent = "「" + LABEL[eng] + "」中文 " + per + " 句中 " + pass.zh + " 句合格，英文 " + per + " 句中 " + pass.en + " 句合格（未重試的原始結果）";
+    log("報時測試：「" + LABEL[eng] + "」中文 " + pass.zh + "/" + per + "，英文 " + pass.en + "/" + per + " 合格。", pass.zh + pass.en >= 8 ? "ok" : "warn");
     clockBusy(false);
   }
 
