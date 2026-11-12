@@ -111,6 +111,23 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 }
 .clock-line.pending { color: var(--muted); }
 .clock-meta { grid-column: 1 / -1; }
+.clock-actions { display: flex; flex-direction: column; gap: 6px; }
+.tests {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tests li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: baseline; }
+.tests .txt { overflow-wrap: anywhere; }
+.tests .sub { grid-column: 2; font-family: var(--font-mono); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.tests .sum { display: block; font-weight: 700; }
+.pill.pass { color: var(--ok); }
+.pill.fail { color: var(--warn); }
 @media (max-width: 760px) {
   .clock { grid-template-columns: minmax(0, 1fr); }
   .clock button { justify-self: start; }
@@ -270,8 +287,12 @@ button:disabled { opacity: .5; cursor: not-allowed; }
       <div class="clock-day" id="clock-day">查詢台北時間中</div>
     </div>
     <div class="clock-line pending" id="clock-line">……</div>
-    <button type="button" id="clock-refresh">重查時間，再酸一句</button>
+    <div class="clock-actions">
+      <button type="button" id="clock-refresh">重查時間，再說一句</button>
+      <button type="button" id="clock-test">連續生成 5 句</button>
+    </div>
     <div class="meta clock-meta" id="clock-meta">尚未生成</div>
+    <ol class="tests" id="clock-tests" hidden></ol>
   </section>
 
   <section class="engines" aria-label="引擎狀態">
@@ -488,14 +509,25 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     return String(text || "").trim().replace(/^["「『“]+|["」』”]+$/g, "").trim();
   }
 
-  async function runBuiltin(key, sys, playerPrompt, onText) {
+  function buildInitial(sys, shots) {
+    var list = [{ role: "system", content: sys }];
+    (shots || []).forEach(function (s) {
+      list.push({ role: "user", content: s.q });
+      list.push({ role: "assistant", content: s.a });
+    });
+    return list;
+  }
+
+  // opts.shots: example exchanges preloaded into the session.
+  // opts.fresh: answer from a clone so earlier answers never pile up in the context.
+  async function runBuiltin(key, sys, playerPrompt, onText, opts) {
     if (state.builtin === "unavailable" || state.builtin === "checking") {
       throw new Error(state.builtinWhy || "內建 AI 不可用");
     }
     var session = state.sessions[key];
     if (!session) {
       session = await self.LanguageModel.create({
-        initialPrompts: [{ role: "system", content: sys }],
+        initialPrompts: buildInitial(sys, opts && opts.shots),
         monitor: function (m) {
           m.addEventListener("downloadprogress", function (e) {
             state.builtin = "downloading";
@@ -508,27 +540,45 @@ button:disabled { opacity: .5; cursor: not-allowed; }
       state.builtin = "available";
       renderBuiltin();
     }
+    var worker = session;
+    if (opts && opts.fresh && typeof session.clone === "function") worker = await session.clone();
     var out = "";
-    if (typeof session.promptStreaming === "function") {
-      var stream = session.promptStreaming(playerPrompt);
-      var reader = stream.getReader();
-      while (true) {
-        var r = await reader.read();
-        if (r.done) break;
-        out += r.value;
-        onText(out);
+    try {
+      if (typeof worker.promptStreaming === "function") {
+        var stream = worker.promptStreaming(playerPrompt);
+        var reader = stream.getReader();
+        while (true) {
+          var r = await reader.read();
+          if (r.done) break;
+          out += r.value;
+          onText(out);
+        }
+      } else {
+        out = await worker.prompt(playerPrompt);
       }
-    } else {
-      out = await session.prompt(playerPrompt);
+    } finally {
+      if (worker !== session && typeof worker.destroy === "function") {
+        try { worker.destroy(); } catch (e) { /* already gone */ }
+      }
     }
     out = clean(out);
     if (!out) throw new Error("模型回了空字串");
     return out;
   }
 
-  async function runCloud(sys, playerPrompt, onText) {
+  async function runCloud(sys, playerPrompt, onText, shots) {
     if (!state.sample) throw new Error("雲端 AI 不可用");
-    var input = sys + "\n\n情境：" + playerPrompt;
+    var input;
+    if (shots && shots.length) {
+      input = [];
+      shots.forEach(function (s, i) {
+        input.push({ role: "user", content: i === 0 ? sys + "\n\n" + s.q : s.q });
+        input.push({ role: "assistant", content: s.a });
+      });
+      input.push({ role: "user", content: playerPrompt });
+    } else {
+      input = sys + "\n\n情境：" + playerPrompt;
+    }
     var res = await state.sample(input, {
       modelTier: "quick",
       cache: false,
@@ -642,25 +692,79 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   /* ---------- clock banner ---------- */
   var TIME_URL = "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Taipei";
   var DAYS = { Monday: "週一", Tuesday: "週二", Wednesday: "週三", Thursday: "週四", Friday: "週五", Saturday: "週六", Sunday: "週日" };
-  var CLOCK_SYS = "你是遊戲畫面上方的報時精靈，像一個愛開玩笑的哲學家。" +
-    "請針對現在的時間對玩家說一句話，必須同時做到五件事：" +
-    "一、正向，骨子裡是鼓勵；" +
-    "二、幽默，讓人想笑；" +
-    "三、有哲理，講出一點關於時間或人生的道理；" +
-    "四、用隱喻，把這個時間點比喻成別的東西（例如茶、爐火、潮水、種子、列車、影子），不要直白說教；" +
-    "五、結尾帶一點欠扁，輕輕調侃玩家一下，但不可以惡意或人身攻擊。" +
-    "風格示範（不要照抄，要換新的比喻）：「早晨是一張白紙，你當然可以拿來墊便當，我不攔你。」" +
-    "用繁體中文，只說一句，不超過 45 個字。只輸出台詞本身，不要加引號、時間標題或任何解釋。";
-  var CLOCK_LINES = {
-    dawn: ["凌晨是世界留給醒著的人的草稿紙，寫吧，雖然你多半只是在滑手機。", "星星都下班了你還亮著，燈塔也不過如此，只是沒有船在等你。"],
-    morning: ["早晨是一壺剛燒開的水，泡什麼茶隨你，別又拿去泡麵就好。", "太陽每天重新升起從不抱怨，你賴床五分鐘倒是很有意見。"],
-    noon: ["正午的影子最短，煩惱也該如此，可惜你的午休更短。", "日頭走到頂點就開始下坡，別擔心，你離頂點還遠得很。"],
-    afternoon: ["下午是一鍋慢燉的湯，急不得，不過你至少先把火打開吧。", "午後的光會把影子拉長，努力也是，前提是你得先站起來。"],
-    evening: ["黃昏是白天寫給自己的結語，你今天這篇，字數有點少喔。", "夕陽教我們漂亮地收尾，不過你好像連開頭都還沒寫。"],
-    night: ["夜晚是替明天磨刀的時間，你卻拿來磨蹭，也算一種修行。", "月亮只借光也能照亮路，所以別謙虛了，雖然你也沒在發光。"]
+  // Three rules only; tone, length and punctuation are carried by the example exchanges.
+  var CLOCK_SYS = "你是一位嘴硬心軟的老茶師，負責報時。每次收到「時間｜小事｜意象」，就說兩個短句：" +
+    "第一句平淡地拿那件小事調侃對方，第二句借那個意象不著痕跡地體諒他。" +
+    "繁體中文，合計 35 字以內，只輸出台詞。";
+  var CLOCK_SHOTS = [
+    { q: "07:40｜小事：賴床｜意象：太陽", a: "太陽都上工了你才醒。也好，它本來就該替你先暖場。" },
+    { q: "10:20｜小事：慢熱｜意象：茶", a: "茶泡到第三回才出味。你慢熱，我不意外，也不擔心。" },
+    { q: "15:05｜小事：眼皮｜意象：石頭", a: "三點的眼皮比石頭重。撐不住也沒人笑你，頂多我笑。" },
+    { q: "20:30｜小事：待辦清單｜意象：爐火", a: "待辦清單又原封不動帶回家了。放著吧，爐火也不是一次就燒旺的。" }
+  ];
+  // The page picks the small thing and the image; the model only joins them.
+  var CLOCK_SEEDS = {
+    dawn: { things: ["鬧鐘", "還亮著的螢幕", "明天的早會"], images: ["月亮", "星星", "露水"] },
+    morning: { things: ["鬧鐘", "賴床", "還沒喝的咖啡"], images: ["太陽", "潮水", "晨霧"] },
+    noon: { things: ["還沒訂的便當", "早上擱著的事", "午休"], images: ["影子", "日頭", "蟬聲"] },
+    afternoon: { things: ["眼皮", "第三杯咖啡", "沒回的訊息"], images: ["茶", "慢燉的湯", "斜陽"] },
+    evening: { things: ["待辦清單", "加班", "沒洗的碗"], images: ["爐火", "晚霞", "歸鳥"] },
+    night: { things: ["鬧鐘", "放不下的手機", "明天的自己"], images: ["月亮", "燈", "夜車"] }
   };
+  var CLOCK_LINES = {
+    dawn: ["這時間還醒著，鬧鐘聽了都想嘆氣。去睡吧，月亮會替你把夜值完。", "螢幕比星星還晚熄。算了，露水也是熬過夜才成形的。"],
+    morning: ["太陽都上工了你才醒。也好，它本來就該替你先暖場。", "鬧鐘響了五回你才理它。不急，潮水也是一波一波才上岸。"],
+    noon: ["早上的事還擱著吧。沒關係，影子最短的時候最適合重來。", "便當又拖到現在才訂。吃吧，日頭也得過了正午才肯慢下來。"],
+    afternoon: ["三點的眼皮比石頭重。撐不住也沒人笑你，頂多我笑。", "茶泡到第三回才出味。你慢熱，我不意外，也不擔心。"],
+    evening: ["待辦清單又原封不動帶回家了。放著吧，爐火也不是一次就燒旺的。", "碗還在水槽裡等你吧。歇會兒，歸鳥也是先落腳才理毛。"],
+    night: ["手機還捨不得放下。睡吧，燈關了，路也不會跑掉。", "又把事情推給明天的自己。也罷，夜車再慢，天亮前總會到站。"]
+  };
+  var BANNED = /加油|相信你|你很棒|你可以的|你一定|別放棄|不要放棄/;
+
+  function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
+
+  function clockSeed(t) {
+    var s = CLOCK_SEEDS[period(t.hour)];
+    return pad(t.hour) + ":" + pad(t.minute) + "｜小事：" + pick(s.things) + "｜意象：" + pick(s.images);
+  }
+
+  // The checks a small model cannot be trusted to keep on its own.
+  function judge(raw) {
+    var text = clean(raw).replace(/\s*\n+\s*/g, "").replace(/[!！]+/g, "。").replace(/。{2,}/g, "。");
+    text = clean(text);
+    var parts = text.split(/[。？?…]+/).filter(function (p) { return p.trim().length > 0; });
+    var hit = text.match(BANNED);
+    var reason = "";
+    if (/[｜|]|小事：|意象：/.test(text)) reason = "照抄了輸入格式";
+    else if (hit) reason = "直接鼓勵（「" + hit[0] + "」）";
+    else if (text.length > 45) reason = "太長（" + text.length + " 字）";
+    else if (text.length < 10) reason = "太短（" + text.length + " 字）";
+    else if (parts.length < 2) reason = "只有一句，少了先戳再軟的結構";
+    return { ok: !reason, text: text, reason: reason };
+  }
+
+  function clockRaw(eng, seed, onText) {
+    if (eng === "builtin") return runBuiltin("clock", CLOCK_SYS, seed, onText, { shots: CLOCK_SHOTS, fresh: true });
+    return runCloud(CLOCK_SYS, seed, onText, CLOCK_SHOTS);
+  }
+
+  // One retry with a new seed, then give up so the caller can fall back.
+  async function clockAi(eng, t, onText) {
+    var last = "";
+    for (var n = 0; n < 2; n++) {
+      var v = judge(await clockRaw(eng, clockSeed(t), onText));
+      if (v.ok) return v.text;
+      last = v.reason;
+      log("報時台詞不合格：" + v.reason + "。原句：「" + v.text + "」" + (n === 0 ? " → 重新生成一次。" : ""), "warn");
+    }
+    throw new Error("連續兩次不合格（" + last + "）");
+  }
   var clock = { now: null, source: "", busy: false };
-  var cEls = { time: $("clock-time"), day: $("clock-day"), line: $("clock-line"), meta: $("clock-meta"), btn: $("clock-refresh") };
+  var cEls = {
+    time: $("clock-time"), day: $("clock-day"), line: $("clock-line"), meta: $("clock-meta"),
+    btn: $("clock-refresh"), test: $("clock-test"), tests: $("clock-tests")
+  };
+  function clockBusy(b) { clock.busy = b; cEls.btn.disabled = b; cEls.test.disabled = b; }
 
   function pad(n) { return (n < 10 ? "0" : "") + n; }
 
@@ -707,15 +811,13 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 
   async function clockGenerate(onLoad) {
     if (clock.busy || !clock.now) return;
-    clock.busy = true;
-    cEls.btn.disabled = true;
+    clockBusy(true);
     var mode = els.mode.value;
     var order;
     if (onLoad) order = state.builtin === "available" ? ["builtin", "script"] : ["script"];
     else order = mode === "auto" ? ["builtin", "cloud", "script"] : [mode];
 
     var t = clock.now;
-    var prompt = "現在是台北時間" + (DAYS[t.dayOfWeek] || "") + " " + pad(t.hour) + ":" + pad(t.minute) + "。請對玩家說一句。";
     cEls.line.textContent = "……";
     cEls.line.classList.add("pending");
     cEls.meta.textContent = "生成中";
@@ -730,12 +832,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
       var t0 = performance.now();
       try {
         var text;
-        if (eng === "builtin") text = await runBuiltin("clock", CLOCK_SYS, prompt, onText);
-        else if (eng === "cloud") text = await runCloud(CLOCK_SYS, prompt, onText);
-        else {
-          var pool = CLOCK_LINES[period(t.hour)];
-          text = pool[Math.floor(Math.random() * pool.length)];
-        }
+        if (eng === "script") text = pick(CLOCK_LINES[period(t.hour)]);
+        else text = await clockAi(eng, t, onText);
         var ms = Math.round(performance.now() - t0);
         cEls.line.classList.remove("pending");
         cEls.line.textContent = text;
@@ -753,8 +851,81 @@ button:disabled { opacity: .5; cursor: not-allowed; }
       cEls.line.textContent = "（沒有產生台詞。把引擎改回「自動」再試一次。）";
       cEls.meta.textContent = "生成失敗，原因見執行紀錄";
     }
-    clock.busy = false;
-    cEls.btn.disabled = false;
+    clockBusy(false);
+  }
+
+  /* Five raw generations in a row, each judged but never retried, to show the hit rate. */
+  async function clockTest() {
+    if (clock.busy) return;
+    var mode = els.mode.value;
+    var eng = "";
+    if (mode === "builtin" || mode === "cloud") eng = mode;
+    else if (mode === "auto") {
+      if (state.builtin !== "unavailable" && state.builtin !== "checking") eng = "builtin";
+      else if (state.sample) eng = "cloud";
+    }
+    cEls.tests.hidden = false;
+    cEls.tests.textContent = "";
+    var head = document.createElement("li");
+    var sum = document.createElement("span");
+    sum.className = "txt sum";
+    head.appendChild(document.createElement("span"));
+    head.appendChild(sum);
+    cEls.tests.appendChild(head);
+    if (!eng) {
+      sum.textContent = mode === "script"
+        ? "預寫台詞不用測。把引擎改成「自動」或指定一種 AI 再按一次。"
+        : "目前沒有可用的 AI 引擎，無法測試。";
+      return;
+    }
+
+    clockBusy(true);
+    if (!clock.now) await loadTime();
+    var t = clock.now;
+    var pass = 0;
+    var total = 5;
+    sum.textContent = "用「" + LABEL[eng] + "」測試中 0 / " + total;
+    for (var i = 0; i < total; i++) {
+      var seed = clockSeed(t);
+      var li = document.createElement("li");
+      var pill = document.createElement("span");
+      pill.className = "pill";
+      pill.textContent = "生成中";
+      var txt = document.createElement("span");
+      txt.className = "txt";
+      txt.textContent = "……";
+      var sub = document.createElement("span");
+      sub.className = "sub";
+      sub.textContent = seed;
+      li.appendChild(pill); li.appendChild(txt); li.appendChild(sub);
+      cEls.tests.appendChild(li);
+      var t0 = performance.now();
+      try {
+        var raw = await clockRaw(eng, seed, (function (el) {
+          return function (x) { el.textContent = clean(x); };
+        })(txt));
+        var v = judge(raw);
+        var ms = Math.round(performance.now() - t0);
+        txt.textContent = v.text;
+        if (v.ok) { pass++; pill.textContent = "合格"; pill.className = "pill pass"; }
+        else { pill.textContent = "不合格"; pill.className = "pill fail"; }
+        sub.textContent = seed + " · " + ms + " ms · " + v.text.length + " 字" + (v.ok ? "" : " · " + v.reason);
+      } catch (e) {
+        var why = e && e.message ? e.message : String(e);
+        pill.textContent = "失敗"; pill.className = "pill fail";
+        txt.textContent = "（沒有產生內容）";
+        sub.textContent = seed + " · " + why;
+        if (e && (e.code === "not_granted" || e.code === "rate_limited")) {
+          sum.textContent = "測試中止：" + why;
+          clockBusy(false);
+          return;
+        }
+      }
+      sum.textContent = "用「" + LABEL[eng] + "」測試中 " + (i + 1) + " / " + total;
+    }
+    sum.textContent = "「" + LABEL[eng] + "」" + total + " 句中 " + pass + " 句合格（未重試的原始結果）";
+    log("報時測試：「" + LABEL[eng] + "」" + total + " 句中 " + pass + " 句合格。", pass >= 4 ? "ok" : "warn");
+    clockBusy(false);
   }
 
   cEls.btn.addEventListener("click", function () {
@@ -762,6 +933,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     cEls.btn.disabled = true;
     loadTime().then(function () { cEls.btn.disabled = false; return clockGenerate(false); });
   });
+  cEls.test.addEventListener("click", clockTest);
 
   showNpc();
   renderBuiltin();
