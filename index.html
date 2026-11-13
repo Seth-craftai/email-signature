@@ -656,5 +656,28 @@
 
   showQuip();
 </script>
+
+<!-- Firebase（Analytics） -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-analytics.js";
+
+  // Firebase 網頁設定本來就是公開的，安全性由 Firebase 後台的規則控管，不靠隱藏金鑰
+  const firebaseConfig = {
+    apiKey: "AIzaSyCRkD2uWl4VxrRejEPElAk9L_BUFR96rqk",
+    authDomain: "craft-ai-official-website.firebaseapp.com",
+    projectId: "craft-ai-official-website",
+    storageBucket: "craft-ai-official-website.firebasestorage.app",
+    messagingSenderId: "370155028831",
+    appId: "1:370155028831:web:7ff7e5675c3fadd890f6ea",
+    measurementId: "G-ELJR7MEEHW"
+  };
+
+  // 載入失敗（廣告阻擋、離線等）不影響簽名檔產生器本身
+  try {
+    const app = initializeApp(firebaseConfig);
+    getAnalytics(app);
+  } catch (e) { /* 略過 */ }
+</script>
 </body>
 </html>
